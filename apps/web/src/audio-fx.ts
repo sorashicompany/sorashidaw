@@ -28,6 +28,7 @@ export class AudioFxEngine {
     dry.gain.value=1-wet; wetGain.gain.value=wet;
     input.connect(dry); dry.connect(output);
     let processor: AudioNode=input;
+    wetGain.connect(output);
 
     const bypass=()=>{ dry.gain.value=effect.bypass?1:1-wet; wetGain.gain.value=effect.bypass?0:wet; };
     const param=(key:string,value:unknown)=>{
