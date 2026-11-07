@@ -9,6 +9,7 @@ export interface Env {
 
 type AuthResponse = {
   authenticated: true;
+  roomTicket: string;
   user: {
     id: number;
     first_name: string;
@@ -65,8 +66,15 @@ async function authenticateTelegram(
     if (!data.user) return json({ error: "Telegram user is missing" }, 401);
     if (!data.chat) return json({ error: "Telegram chat context is missing" }, 401);
 
+    const roomTicket = await createRoomTicket(
+      data.user.id,
+      data.chat.id,
+      env.TELEGRAM_BOT_TOKEN,
+    );
+
     const response: AuthResponse = {
       authenticated: true,
+      roomTicket,
       user: {
         id: data.user.id,
         first_name: data.user.first_name,
@@ -96,6 +104,7 @@ async function connectRoomSocket(request: Request, env: Env): Promise<Response> 
   const url = new URL(request.url);
   const chatId = Number(url.searchParams.get("chatId"));
   const ticket = url.searchParams.get("ticket");
+  const since = url.searchParams.get("since");
 
   if (!Number.isSafeInteger(chatId) || !ticket) {
     return json({ error: "chatId and ticket are required" }, 401);
@@ -108,10 +117,19 @@ async function connectRoomSocket(request: Request, env: Env): Promise<Response> 
     headers.set("X-Beat-Room-Id", String(verified.chatId));
     headers.set("X-Telegram-User-Id", String(verified.userId));
 
-    return stub.fetch(new Request(request, { headers }));
+    const target = new URL(request.url);
+    if (since) target.searchParams.set("since", since);
+
+    return stub.fetch(new Request(target, { headers }));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Room authentication failed";
     return json({ error: message }, 401);
   }
 }
 
+function json(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "content-type": "application/json; charset=utf-8" },
+  });
+}
