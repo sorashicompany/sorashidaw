@@ -171,5 +171,13 @@ export class AudioFxEngine {
     const nodes=this.chains.get(id)??[]; (nodes.at(-1)?.output??input).connect(destination);
   }
 
-  disconnect(id:string): void { const nodes=this.chains.get(id); nodes?.forEach(n=>n.dispose()); this.chains.delete(id); }
+  disconnect(id:string): void {
+    const nodes = this.chains.get(id);
+    nodes?.forEach(node => {
+      try { node.input.disconnect(); } catch {}
+      try { node.output.disconnect(); } catch {}
+      node.dispose();
+    });
+    this.chains.delete(id);
+  }
 }
