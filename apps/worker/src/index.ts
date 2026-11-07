@@ -187,7 +187,8 @@ async function roomAsset(request: Request, env: Env): Promise<Response> {
 
 
 async function botWebhook(request: Request, env: Env): Promise<Response> {
-  const webhookSecret = env.TELEGRAM_WEBHOOK_SECRET ?? env.BOT_WEBHOOK_SECRET;\n  if (webhookSecret && request.headers.get("X-Telegram-Bot-Api-Secret-Token") !== webhookSecret) {
+  const webhookSecret = env.TELEGRAM_WEBHOOK_SECRET ?? env.BOT_WEBHOOK_SECRET;
+  if (webhookSecret && request.headers.get("X-Telegram-Bot-Api-Secret-Token") !== webhookSecret) {
     return json({ error: "Invalid webhook secret" }, 401);
   }
   let update: any;
