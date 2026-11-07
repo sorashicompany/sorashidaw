@@ -98,3 +98,99 @@ For group launch, the preferred flow is:
 `Telegram Group → Open Beat Studio → Mini App → verified chat context → Beat Room`
 
 The Bot does not accept a client-supplied Telegram chat ID as authentication. The Mini App continues to use verified Telegram WebApp `initData` and the signed room ticket.
+
+## Architecture
+
+The application is separated into five runtime domains.
+
+### Frontend
+
+`apps/web/` is the Telegram Mini App and DAW shell.
+
+- Telegram Mini App bootstrap and authenticated room entry.
+- Playlist / Arrangement.
+- Piano Roll.
+- Step Sequencer / Drum Machine.
+- Mixer.
+- Synth.
+- Effects and Master Chain.
+- Browser / Library.
+- Participants and shared Transport.
+
+The UI owns interaction and local presentation. It does not become the authority for Telegram identity or room isolation.
+
+### Audio
+
+The browser owns local audio playback.
+
+- `apps/web/src/audio-engine.ts` — Audio Engine orchestration.
+- `apps/web/public/audio-engine-processor.js` — AudioWorklet DSP/runtime.
+- `apps/web/src/audio-fx.ts` — Web Audio effects graph.
+- MIDI input and MIDI event handling live in the web audio layer.
+- `packages/shared/src/synth.ts` and `packages/shared/src/effects.ts` contain shared synth/effect models.
+
+Audio is rendered locally on every participant device. The backend synchronizes musical state and control operations, not the rendered audio stream.
+
+### Realtime
+
+`packages/shared/src/collaboration.ts` defines the collaboration protocol. `apps/web/src/collaboration.ts` is the client transport and `apps/worker/src/room.ts` is the room coordinator.
+
+Current synchronization model:
+
+`WebSocket → Durable Object → ordered operations → broadcast → local project/audio state`
+
+It provides realtime operation ordering, presence, cursors, reconnect replay and shared Transport clocking. The current implementation is operation-based server-authoritative sequencing; it is intentionally not described as a CRDT yet. A CRDT/OT state-transform layer can be introduced behind the same operation boundary if conflict semantics later require it.
+
+### Backend
+
+`apps/worker/` is the trusted server boundary.
+
+- Telegram authentication and `initData` verification.
+- Signed room tickets.
+- Chat-to-room resolution.
+- Durable room coordination.
+- Project snapshots and version history.
+- R2 asset access.
+- Telegram Bot integration and export delivery.
+
+The Durable Object name is derived from the verified Telegram chat ID, establishing the runtime room isolation boundary.
+
+### Database
+
+Supabase is the durable relational application database schema.
+
+- `telegram_users`.
+- `telegram_chats`.
+- `beat_rooms`.
+- `beat_room_members`.
+- `beat_projects`.
+- `beat_project_versions`.
+- `beat_project_metadata`.
+
+The dedicated new `sorashidaw` Supabase project is still a deployment prerequisite; the schema is prepared but must not be pointed at an unrelated existing production project.
+
+### Storage
+
+Cloudflare R2 is the binary asset layer.
+
+- WAV samples.
+- Drum Kit assets.
+- Audio files.
+- Future user/factory presets.
+- Wavetables and other binary library assets.
+
+R2 objects are scoped to the verified Telegram chat / Beat Room. Project snapshots store metadata and asset references rather than duplicating large binaries.
+
+### Dependency boundaries
+
+`Telegram → Mini App → Worker auth → Beat Room`
+
+`Mini App → WebSocket → Durable Object → realtime operations`
+
+`Mini App → Web Audio / AudioWorklet → local playback`
+
+`Mini App → Worker → R2 → binary assets`
+
+`Worker / persistence layer → Supabase → durable relational metadata and project records`
+
+No module receives room authority merely because it is a frontend component. Telegram identity is established at the Worker boundary, and room participation is derived from verified chat context.
