@@ -236,7 +236,8 @@ export default function App() {
   const [browserFolder, setBrowserFolder] = useState("All");
   const [activeAutomationLane, setActiveAutomationLane] = useState("auto-filter");
   useEffect(() => {
-    if (projectHydratedRef.current || !projectLoaded) return;\n    if (!savedProjectState || typeof savedProjectState !== "object") { projectHydratedRef.current = true; return; }
+    if (projectHydratedRef.current || !projectLoaded) return;
+    if (!savedProjectState || typeof savedProjectState !== "object") { projectHydratedRef.current = true; return; }
     const saved = savedProjectState as any;
     if (typeof saved.bpm === "number") setBpm(saved.bpm);
     if (Array.isArray(saved.tracks)) setTracks(saved.tracks);
@@ -297,7 +298,8 @@ export default function App() {
     if (snapshot.synth) setSynth(snapshot.synth);
     if (Array.isArray(snapshot.effects)) setEffects(snapshot.effects);
     if (Array.isArray(snapshot.masterEffects)) setMasterEffects(snapshot.masterEffects);
-    if (Array.isArray(snapshot.mixer)) setMixer(snapshot.mixer);\n    if (Array.isArray(snapshot.assets)) setDrumAssets(snapshot.assets);
+    if (Array.isArray(snapshot.mixer)) setMixer(snapshot.mixer);
+    if (Array.isArray(snapshot.assets)) setDrumAssets(snapshot.assets);
     if (snapshot.loop) {
       setLoopEnabled(Boolean(snapshot.loop.enabled));
       setLoopStartBeats(Number(snapshot.loop.startBeats ?? 0));
@@ -1125,7 +1127,8 @@ export default function App() {
         <div className="brand"><div className="brand-mark">S</div><div><strong>SORASHI DAW</strong><span>shared beat room</span></div></div>
         <div className="project"><button className="project-name">Untitled Beat <span>⌄</span></button><span className="save-state"><i /> Saved</span><button className="history-button" onClick={() => setHistoryOpen(v => !v)}>HISTORY</button><button className="export-button" onClick={() => setExportOpen(v => !v)}>EXPORT</button></div>
         <div className="transport">
-          <button className="transport-button" onClick={() => void togglePlayback()}>{playing ? "PAUSE" : "PLAY"}</button>\n          <button className="transport-button" onClick={() => void publishStop()}>STOP</button>
+          <button className="transport-button" onClick={() => void togglePlayback()}>{playing ? "PAUSE" : "PLAY"}</button>
+          <button className="transport-button" onClick={() => void publishStop()}>STOP</button>
           <button className="transport-icon" onClick={() => void publishStop()}>■</button>
           <span className="tempo-label">BPM</span>
           <input value={bpm} type="number" min="40" max="240" onChange={event => { const value = Number(event.target.value); setBpm(value); emit("CHANGE_BPM", "project", { bpm: value }); }} />
