@@ -33,6 +33,7 @@ export class AudioFxEngine {
 
     const bypass=()=>{ dry.gain.value=effect.bypass?1:1-wet; wetGain.gain.value=effect.bypass?0:wet; };
     const param=(key:string,value:unknown)=>{
+      if(key==="__bypass"){ effect.bypass=Boolean(value); bypass(); return; }
       const v=Number(value);
       switch(effect.type){
         case "gain": if(key==="gain") (processor as GainNode).gain.value=db(v); break;
@@ -122,6 +123,17 @@ export class AudioFxEngine {
   }
 
   getAnalyzer(id:string): AnalyserNode | undefined { return this.chains.get(id)?.at(-1)?.analyzer; }
+
+  setEffectParameter(chainId:string, effectId:string, key:string, value:unknown): void {
+    const node = this.chains.get(chainId)?.find(item => item.effectId === effectId);
+    node?.setParameter(key, value);
+  }
+
+  setEffectBypass(chainId:string, effectId:string, bypass:boolean): void {
+    const node = this.chains.get(chainId)?.find(item => item.effectId === effectId);
+    if (!node) return;
+    node.setParameter("__bypass", bypass);
+  }
 
   getMeterLevel(id:string): number {
     const analyzer = this.getAnalyzer(id);
