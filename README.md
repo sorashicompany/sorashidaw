@@ -73,3 +73,28 @@ Beat Room realtime editing uses a Cloudflare Durable Object per verified Telegra
 - The client applies remote operations without disabling local controls, so another participant editing the same Piano Roll note, velocity, synth parameter, or mixer value does not block input.
 - WebSocket authentication uses a short-lived Worker-signed room ticket derived from verified Telegram WebApp data; raw Telegram initData is not sent to the room WebSocket.
 - The Durable Object is the realtime coordination layer. Persistent project snapshots and event history remain a separate concern for Supabase and are intentionally not conflated with live transport.
+
+## Telegram Bot
+
+The Worker includes a Telegram Bot integration alongside the Mini App.
+
+Supported bot actions:
+- `/start`, `/open`, `/beat` — send an **Open Beat Studio** button.
+- `/invite` — request a Telegram group invite link when the bot has permission and send it to the chat.
+- authenticated Mini App export delivery through `POST /api/bot/export`.
+- saved-beat notification through `POST /api/bot/saved`.
+
+The music UI remains inside the Telegram Mini App. The Bot is the entry point, notification and delivery layer; it is not a replacement for the DAW interface.
+
+Required Worker configuration:
+- `MINI_APP_URL` — HTTPS URL of the deployed Mini App.
+- `BOT_WEBHOOK_SECRET` — optional secret token used to validate Telegram webhook requests.
+- `BOT_USERNAME` — optional bot username for future invite/deep-link helpers.
+
+Configure the Telegram webhook to point to `/api/bot/webhook`. The bot token remains a Worker secret and is never exposed to the browser.
+
+For group launch, the preferred flow is:
+
+`Telegram Group → Open Beat Studio → Mini App → verified chat context → Beat Room`
+
+The Bot does not accept a client-supplied Telegram chat ID as authentication. The Mini App continues to use verified Telegram WebApp `initData` and the signed room ticket.
