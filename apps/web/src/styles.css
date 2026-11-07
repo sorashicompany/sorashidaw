@@ -242,3 +242,15 @@ button { color: inherit; }
 .preview-button{display:flex;align-items:center;justify-content:center;width:18px;height:18px;border:1px solid #282e37;background:#101319;color:#9f83bd;border-radius:2px;font-size:5px}
 .browser-empty{padding:16px 7px;color:#505863;font-size:6px;text-align:center}
 .browser-hint{border-top:1px solid var(--line-soft);padding:6px 8px;color:#4f5661;font-size:4px;letter-spacing:.08em}
+
+.history-button{background:#111821;border:1px solid #293444;color:#aeb9c8;padding:6px 9px;font-size:10px;letter-spacing:.08em}
+.history-button:disabled{opacity:.35;cursor:not-allowed}
+.history-popover{position:absolute;right:18px;top:58px;width:330px;z-index:30;background:#0d131b;border:1px solid #2b3748;box-shadow:0 18px 50px rgba(0,0,0,.45)}
+.history-head{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid #202b39;font-size:10px;letter-spacing:.1em}
+.history-head button{background:transparent;border:0;color:#8491a3;font-size:16px}
+.history-list{max-height:360px;overflow:auto}
+.history-item{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid #1b2531;gap:12px}
+.history-item b{display:block;font-size:11px}
+.history-item small{display:block;color:#6f7c8d;margin-top:3px;font-size:9px}
+.history-item button{background:#171f2b;border:1px solid #334154;color:#aeb9c8;padding:5px 8px;font-size:9px}
+.history-empty{padding:18px;color:#687587;font-size:10px}
