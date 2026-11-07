@@ -278,6 +278,7 @@ export default function App() {
   const [undoDepth, setUndoDepth] = useState(0);
   const [redoDepth, setRedoDepth] = useState(0);
   const [projectHistory, setProjectHistory] = useState<Array<{version:number;label:string;createdAt:string}>>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const applyProjectSnapshot = (snapshot: any) => {
     if (typeof snapshot.bpm === "number") setBpm(snapshot.bpm);
@@ -320,7 +321,7 @@ export default function App() {
   useEffect(() => {
     if (!projectLoaded || !chatId) return;
     void getProjectHistory().then(setProjectHistory);
-  }, [projectLoaded, chatId, getProjectHistory]);
+  }, [projectLoaded, chatId]);
 
   const performCollaborativeUndo = () => {
     const entry = undoStackRef.current.pop();
@@ -1077,6 +1078,17 @@ export default function App() {
           <span className={roomState === "live" ? "room-status live" : "room-status"}><i />{roomState === "live" ? "LIVE" : roomState.toUpperCase()}</span>
         </div>
       </header>
+
+          {historyOpen && <div className="history-popover">
+            <div className="history-head"><strong>VERSION HISTORY</strong><button onClick={() => setHistoryOpen(false)}>×</button></div>
+            <div className="history-list">
+              {projectHistory.slice().reverse().map(item => <div className="history-item" key={item.version}>
+                <div><b>{item.label}</b><small>{new Date(item.createdAt).toLocaleString()}</small></div>
+                <button onClick={async () => { if (await restoreProjectVersion(item.version)) { const refreshed = await getProjectHistory(); setProjectHistory(refreshed); setHistoryOpen(false); } }}>RESTORE</button>
+              </div>)}
+              {projectHistory.length === 0 && <div className="history-empty">No saved versions yet.</div>}
+            </div>
+          </div>
 
       <div className="toolbar">
         <div className="tool-tabs">{windows.map(windowName => <button key={windowName} className={active === windowName ? "tool-tab active" : "tool-tab"} onClick={() => setActive(windowName)}>{icon(windowName)} {windowName}</button>)}</div>
