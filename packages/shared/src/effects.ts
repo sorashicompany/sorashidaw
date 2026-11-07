@@ -4,6 +4,24 @@ export type BuiltInEffectType =
   | "filter" | "gain" | "stereo-widener" | "utility";
 
 export type EffectParameterValue = number | boolean | string;
+
+export type ParametricEqBand = {
+  id: string;
+  frequency: number;
+  gain: number;
+  q: number;
+  type: BiquadFilterType;
+  enabled: boolean;
+};
+
+export const DEFAULT_EQ_BANDS: ParametricEqBand[] = [
+  { id:"eq1", frequency:80, gain:0, q:0.71, type:"lowshelf", enabled:true },
+  { id:"eq2", frequency:180, gain:0, q:1, type:"peaking", enabled:true },
+  { id:"eq3", frequency:500, gain:0, q:1, type:"peaking", enabled:true },
+  { id:"eq4", frequency:1200, gain:0, q:1, type:"peaking", enabled:true },
+  { id:"eq5", frequency:3500, gain:0, q:1, type:"peaking", enabled:true },
+  { id:"eq6", frequency:9000, gain:0, q:0.71, type:"highshelf", enabled:true },
+];
 export type EffectInstance = {
   id: string;
   type: BuiltInEffectType;
@@ -32,7 +50,7 @@ export const BUILT_IN_EFFECTS: Array<{type: BuiltInEffectType; name: string; cat
 
 export function defaultEffectParams(type: BuiltInEffectType): Record<string, EffectParameterValue> {
   switch (type) {
-    case "parametric-eq": return {lowGain:0, lowFreq:120, midGain:0, midFreq:1200, midQ:1, highGain:0, highFreq:8000};
+    case "parametric-eq": return {bands: JSON.stringify(DEFAULT_EQ_BANDS)};
     case "compressor": return {threshold:-18, ratio:4, attack:0.01, release:0.15, knee:12, makeup:0};
     case "limiter": return {threshold:-1, release:0.08, makeup:0};
     case "reverb": return {decay:2.2, preDelay:0.02, damping:55};
