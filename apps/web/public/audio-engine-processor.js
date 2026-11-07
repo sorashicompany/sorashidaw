@@ -4,7 +4,7 @@ class SorashiAudioProcessor extends AudioWorkletProcessor {
     this.playing = false;
     this.bpm = 128;
     this.step = 0;
-    this.nextStepFrame = 0;\n    this.startAtFrame = 0;\n    this.positionBeats = 0;\n    this.loopEnabled = false;\n    this.loopStartBeats = 0;\n    this.loopEndBeats = 64;
+    this.nextStepFrame = 0;\n    this.startAtFrame = 0;\n    this.positionBeats = 0;\n    this.loopEnabled = false;\n    this.loopStartBeats = 0;\n    this.loopEndBeats = 64;\n    this.cutoff = 20000;\n    this.filterState = 0;
     this.channels = [];
     this.notes = [];
     this.voices = [];
@@ -26,6 +26,10 @@ class SorashiAudioProcessor extends AudioWorkletProcessor {
         this.channels = message.channels || [];
         this.notes = message.notes || [];
         this.bpm = Math.max(40, Math.min(240, Number(message.bpm) || 128));
+      }
+      if (message.type === "automation") {
+        const value = Number(message.value);
+        if (message.target === "filter.cutoff" || (message.target === "synth.parameter" && message.parameter === "filter.cutoff")) this.cutoff = Math.max(40, Math.min(20000, value));
       }
       if (message.type === "seek") {
         this.step = Math.max(0, Number(message.step) || 0);
@@ -105,6 +109,9 @@ class SorashiAudioProcessor extends AudioWorkletProcessor {
         sample += value;
       }
       sample = Math.max(-0.92, Math.min(0.92, sample));
+      const alpha = Math.min(0.99, Math.max(0.002, 2 * Math.PI * this.cutoff / sr));
+      this.filterState += alpha * (sample - this.filterState);
+      sample = this.filterState;
       out[0][i] = sample;
       if (out[1]) out[1][i] = sample;
     }
