@@ -28,6 +28,7 @@ export class AudioFxEngine {
     dry.gain.value=1-wet; wetGain.gain.value=wet;
     input.connect(dry); dry.connect(output);
     let processor: AudioNode=input;
+    let eqFilters: BiquadFilterNode[] = [];
     wetGain.connect(output);
 
     const bypass=()=>{ dry.gain.value=effect.bypass?1:1-wet; wetGain.gain.value=effect.bypass?0:wet; };
@@ -61,8 +62,8 @@ export class AudioFxEngine {
           {id:"eq5",frequency:3500,gain:0,q:1,type:"peaking",enabled:true},
           {id:"eq6",frequency:9000,gain:0,q:.71,type:"highshelf",enabled:true}
         ];
-        const filters = bands.map(b => { const f=c.createBiquadFilter(); f.type=b.type; f.frequency.value=clamp(b.frequency,20,20000); f.gain.value=clamp(b.gain,-24,24); f.Q.value=clamp(b.q,.05,30); f.enabled=b.enabled; return f; });
-        connectChain([input,...filters,wetGain]); processor=filters[0] ?? input;
+        eqFilters = bands.map(b => { const f=c.createBiquadFilter(); f.type=b.type; f.frequency.value=clamp(b.frequency,20,20000); f.gain.value=clamp(b.gain,-24,24); f.Q.value=clamp(b.q,.05,30); f.enabled=b.enabled; return f; });
+        connectChain([input,...eqFilters,wetGain]); processor=eqFilters[0] ?? input;
         break;
       }
       case "compressor": {
