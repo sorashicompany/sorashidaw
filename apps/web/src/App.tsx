@@ -199,6 +199,8 @@ export default function App() {
           setMasterEffects(current => current.map(effect => effect.id === effectId
             ? (key.startsWith("params.") ? { ...effect, params: { ...effect.params, [key.slice(7)]: op.payload.value } } : { ...effect, [key]: op.payload.value } as EffectInstance)
             : effect));
+          if (key.startsWith("params.")) realAudioEngineRef.current?.setMasterParameter(effectId, key.slice(7), op.payload.value);
+          if (key === "bypass") realAudioEngineRef.current?.setMasterBypass(effectId, Boolean(op.payload.value));
           continue;
         }
         const key = String(op.payload.key);
