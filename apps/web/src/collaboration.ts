@@ -6,7 +6,7 @@ export type RoomConnectionState = "offline" | "connecting" | "live" | "error";
 type AuthResponse = {
   authenticated: true;
   roomTicket: string;
-  user: { id: number; first_name: string; username?: string };
+  user: { id: number; first_name: string; username?: string; photo_url?: string };
   chat: { id: number };
 };
 
@@ -15,6 +15,7 @@ export function useBeatRoom() {
   const sequenceRef = useRef(0);
   const [state, setState] = useState<RoomConnectionState>("offline");
   const [events, setEvents] = useState<CollaborationEnvelope[]>([]);
+  const [presence, setPresence] = useState<import("../../../packages/shared/src/collaboration").PresenceState[]>([]);
   const identityRef = useRef<{ userId: number; chatId: number } | null>(null);
 
   useEffect(() => {
@@ -57,6 +58,9 @@ export function useBeatRoom() {
             if ("sequence" in message && message.sequence > sequenceRef.current) {
               sequenceRef.current = message.sequence;
             }
+            if (message.type === "sync.presence.snapshot") setPresence(message.presence);
+            if (message.type === "sync.presence") setPresence(prev => { const next = prev.filter(p => p.actorId !== message.presence.actorId); return [...next, message.presence]; });
+            if (message.type === "sync.cursor") setPresence(prev => prev.map(p => p.actorId === message.actorId ? { ...p, cursor: message.cursor, area: message.area, status: "online" } : p));
             setEvents(prev => [...prev.slice(-199), message]);
           } catch {
             // Ignore malformed server messages without breaking the room connection.
@@ -107,7 +111,16 @@ export function useBeatRoom() {
     return true;
   }
 
-  return { state, events, publish, sequence: sequenceRef.current };
+  function updatePresence(area: string) {
+    const identity = identityRef.current; const socket = socketRef.current;
+    if (!identity || !socket || socket.readyState !== WebSocket.OPEN) return;
+    socket.send(JSON.stringify({ type: "presence.update", presence: { actorId: identity.userId, area, status: "online" } }));
+  }
+  function publishCursor(x: number, y: number, area: string) {
+    const socket = socketRef.current; if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    socket.send(JSON.stringify({ type: "cursor.move", cursor: { x, y }, area }));
+  }
+  return { state, events, presence, publish, updatePresence, publishCursor, sequence: sequenceRef.current };
 }
 
 declare global {
