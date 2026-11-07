@@ -31,6 +31,7 @@ export function useBeatRoom() {
   const [transport, setTransport] = useState<RoomTransportState | null>(null);
   const [projectState, setProjectState] = useState<unknown | null>(null);
   const [projectVersion, setProjectVersion] = useState(0);
+  const [projectLoaded, setProjectLoaded] = useState(false);
 
   useEffect(() => {
     const initData = window.Telegram?.WebApp?.initData;
@@ -65,6 +66,8 @@ export function useBeatRoom() {
           }
         } catch {
           // Realtime collaboration remains usable if persistent state is temporarily unavailable.
+        } finally {
+          setProjectLoaded(true);
         }
 
         const protocol = location.protocol === "https:" ? "wss:" : "ws:";
@@ -178,7 +181,7 @@ export function useBeatRoom() {
     const socket = socketRef.current; if (!socket || socket.readyState !== WebSocket.OPEN) return;
     socket.send(JSON.stringify({ type: "cursor.move", cursor: { x, y }, area }));
   }
-  return { state, events, presence, publish, publishTransport, transport, serverOffsetMs, updatePresence, publishCursor, sequence: sequenceRef.current, roomTicket, chatId, projectState, projectVersion, saveProjectState };
+  return { state, events, presence, publish, publishTransport, transport, serverOffsetMs, updatePresence, publishCursor, sequence: sequenceRef.current, roomTicket, chatId, projectState, projectVersion, projectLoaded, saveProjectState };
 }
 
 declare global {
