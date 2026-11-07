@@ -556,6 +556,17 @@ export default function App() {
 
   useEffect(() => {
     for (const event of events) {
+      if (event.type !== "sync.project.restore") continue;
+      const restore = event as Extract<typeof event, { type: "sync.project.restore" }>;
+      if (restore.state && typeof restore.state === "object") {
+        applyProjectSnapshot(restore.state);
+        setProjectVersion(Number(restore.version ?? 0));
+      }
+    }
+  }, [events]);
+
+  useEffect(() => {
+    for (const event of events) {
       if (event.type !== "sync.operation") continue;
       const op = event.operation;
       if (op.actorId === userId) continue;
