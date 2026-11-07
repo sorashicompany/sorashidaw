@@ -558,6 +558,9 @@ export default function App() {
     for (const event of events) {
       if (event.type !== "sync.project.restore") continue;
       const restore = event as Extract<typeof event, { type: "sync.project.restore" }>;
+      const restoreKey = String(restore.version) + ":" + String(restore.restoredFrom);
+      if (appliedOps.current.has("restore:" + restoreKey)) continue;
+      appliedOps.current.add("restore:" + restoreKey);
       if (restore.state && typeof restore.state === "object") {
         applyProjectSnapshot(restore.state);
         setProjectVersion(Number(restore.version ?? 0));
