@@ -13,6 +13,8 @@ type Connection = {
   roomId: string;
 };
 
+const MAX_RECENT_OPERATIONS = 500;
+
 export class BeatRoom extends DurableObject<RoomEnv> {
   async fetch(request: Request): Promise<Response> {
     if (request.headers.get("Upgrade") !== "websocket") {
@@ -31,6 +33,19 @@ export class BeatRoom extends DurableObject<RoomEnv> {
 
     this.ctx.acceptWebSocket(server);
     server.serializeAttachment({ actorId, roomId } satisfies Connection);
+
+    const since = Number(new URL(request.url).searchParams.get("since") ?? 0);
+    if (Number.isSafeInteger(since) && since >= 0) {
+      const operations = await this.readOperationsAfter(since);
+      const sequence = (await this.ctx.storage.get<number>("sequence")) ?? 0;
+      if (operations.length > 0) {
+        server.send(JSON.stringify({
+          type: "sync.snapshot",
+          sequence,
+          operations,
+        } satisfies CollaborationEnvelope));
+      }
+    }
 
     this.broadcast({
       type: "sync.presence",
@@ -63,22 +78,34 @@ export class BeatRoom extends DurableObject<RoomEnv> {
       operation.actorId !== connection.actorId ||
       typeof operation.opId !== "string"
     ) {
-      ws.send(JSON.stringify({ type: "sync.error", opId: operation?.opId, message: "Invalid operation identity" }));
+      ws.send(JSON.stringify({
+        type: "sync.error",
+        opId: operation?.opId,
+        message: "Invalid operation identity",
+      }));
       return;
     }
 
+    // Every verified room participant can mutate every project entity.
     // There is deliberately no lock, lease, ownership, or editor check.
-    // Every verified room participant can submit operations for every entity.
     const sequence = await this.nextSequence();
-
     const envelope: CollaborationEnvelope = {
       type: "sync.operation",
       sequence,
       operation,
     };
 
+    // Broadcast the operation as soon as it is sequenced. The durable operation
+    // log is kept separately so reconnecting clients can catch up without a full
+    // project snapshot.
     this.broadcast(envelope);
-    ws.send(JSON.stringify({ type: "sync.ack", opId: operation.opId, sequence }));
+    await this.appendOperation(sequence, operation);
+
+    ws.send(JSON.stringify({
+      type: "sync.ack",
+      opId: operation.opId,
+      sequence,
+    } satisfies CollaborationEnvelope));
   }
 
   async webSocketClose(ws: WebSocket, code: number, reason: string) {
@@ -103,6 +130,18 @@ export class BeatRoom extends DurableObject<RoomEnv> {
     const next = current + 1;
     await this.ctx.storage.put("sequence", next);
     return next;
+  }
+
+  private async appendOperation(sequence: number, operation: CollaborationOperation): Promise<void> {
+    const log = (await this.ctx.storage.get<Array<{ sequence: number; operation: CollaborationOperation }>>("operations")) ?? [];
+    log.push({ sequence, operation });
+    const trimmed = log.slice(-MAX_RECENT_OPERATIONS);
+    await this.ctx.storage.put("operations", trimmed);
+  }
+
+  private async readOperationsAfter(sequence: number): Promise<CollaborationOperation[]> {
+    const log = (await this.ctx.storage.get<Array<{ sequence: number; operation: CollaborationOperation }>>("operations")) ?? [];
+    return log.filter(entry => entry.sequence > sequence).map(entry => entry.operation);
   }
 
   private broadcast(message: CollaborationEnvelope): void {
