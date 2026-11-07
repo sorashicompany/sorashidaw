@@ -4,7 +4,7 @@ import { createRoomTicket, verifyRoomTicket } from "./room-ticket";
 import { sendBeatSaved, sendExportedFile, sendInvite, sendOpenBeatStudio, getGroupInviteLink } from "./telegram-bot";
 import { supabaseWorkerCall } from "./supabase";
 
-export interface Env { TELEGRAM_BOT_TOKEN: string; BEAT_ROOM: DurableObjectNamespace<BeatRoom>; DRUM_KITS: R2Bucket; MINI_APP_URL: string; SUPABASE_URL: string; SUPABASE_PUBLISHABLE_KEY: string; SUPABASE_WORKER_SIGNING_SECRET: string; TELEGRAM_WEBHOOK_SECRET?: string; BOT_WEBHOOK_SECRET?: string; BOT_USERNAME?: string; }
+export interface Env { TELEGRAM_BOT_TOKEN: string; BEAT_ROOM: DurableObjectNamespace<BeatRoom>; DRUM_KITS?: R2Bucket; MINI_APP_URL: string; SUPABASE_URL: string; SUPABASE_PUBLISHABLE_KEY: string; SUPABASE_WORKER_SIGNING_SECRET: string; TELEGRAM_WEBHOOK_SECRET?: string; BOT_WEBHOOK_SECRET?: string; BOT_USERNAME?: string; }
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -134,6 +134,7 @@ async function roomAssets(request: Request, env: Env): Promise<Response> {
     const verified = await verifyRoomTicket(ticket, chatId, env.TELEGRAM_BOT_TOKEN);
     const prefix = String(verified.chatId) + "/";
     if (request.method === "GET") {
+      if (!env.DRUM_KITS) return json({ assets: [], storage: "unavailable" });
       const listed = await env.DRUM_KITS.list({ prefix });
       const assets = listed.objects.map(object => ({
         id: object.key.slice(prefix.length),
@@ -146,6 +147,7 @@ async function roomAssets(request: Request, env: Env): Promise<Response> {
       }));
       return json({ assets });
     }
+    if (!env.DRUM_KITS) return json({ error: "Room asset storage is not configured" }, 503);
     const form = await request.formData();
     const file = form.get("file");
     if (!(file instanceof File)) return json({ error: "WAV file is required" }, 400);
@@ -173,6 +175,7 @@ async function roomAsset(request: Request, env: Env): Promise<Response> {
   if (!Number.isSafeInteger(chatId) || !ticket || !id) return new Response("Unauthorized", { status: 401 });
   try {
     const verified = await verifyRoomTicket(ticket, chatId, env.TELEGRAM_BOT_TOKEN);
+    if (!env.DRUM_KITS) return new Response("Room asset storage is not configured", { status: 503 });
     const object = await env.DRUM_KITS.get(String(verified.chatId) + "/" + id);
     if (!object) return new Response("Not found", { status: 404 });
     const headers = new Headers();
