@@ -101,7 +101,6 @@ export default function App() {
       { id:"e1", position:0, value:30 }, { id:"e2", position:32, value:75 }
     ] }
   ]);
-  const [activeAutomationLane, setActiveAutomationLane] = useState("auto-filter");
   const [selectedClip, setSelectedClip] = useState<string | null>("drums-1");
   const [clipboard, setClipboard] = useState<Clip | null>(null);
   const [zoom, setZoom] = useState(1);
@@ -137,6 +136,12 @@ export default function App() {
   const [effects, setEffects] = useState<EffectInstance[]>(INITIAL_EFFECTS);
   const [masterEffects, setMasterEffects] = useState<EffectInstance[]>([]);
   const [masterMeter, setMasterMeter] = useState(-Infinity);
+  const [drumAssets, setDrumAssets] = useState<DrumAsset[]>([]);
+  const [assetCategory, setAssetCategory] = useState("Kicks");
+  const [browserCategory, setBrowserCategory] = useState("Samples");
+  const [browserSearch, setBrowserSearch] = useState("");
+  const [browserFolder, setBrowserFolder] = useState("All");
+  const [activeAutomationLane, setActiveAutomationLane] = useState("auto-filter");
   const [gainReduction, setGainReduction] = useState<Record<string, number>>({});
   const audioFxRef = useRef<AudioFxEngine | null>(null);
   const eqCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -536,6 +541,52 @@ export default function App() {
     emit("SPLIT_CLIP", clip.id, { left, right }, trackId);
   }
 
+  type BrowserItem = { id:string; name:string; category:string; folder:string; kind:"sample"|"kit"|"preset"|"wavetable"|"instrument"|"effect"|"project"; previewUrl?:string; sourceAssetId?:string };
+  const browserItems: BrowserItem[] = [
+    ...drumAssets.map(asset => ({ id:"sample:"+asset.id, name:asset.name, category:"Samples", folder:asset.folder || asset.category, kind:"sample" as const, previewUrl:asset.previewUrl, sourceAssetId:asset.id })),
+    ...DRUM_SAMPLES.map(name => ({ id:"builtin:"+name, name, category:"Samples", folder:"Built-in / Drums", kind:"sample" as const })),
+    ...Object.values(SYNTH_PRESETS).map((preset:any) => ({ id:"preset:"+preset.id, name:preset.name, category:"Presets", folder:"Synth Presets", kind:"preset" as const })),
+    ...WAVETABLES.map((table:any) => ({ id:"wt:"+table.id, name:table.name, category:"Wavetables", folder:"Wavetables", kind:"wavetable" as const })),
+    ...BUILT_IN_EFFECTS.map(effect => ({ id:"fx:"+effect.type, name:effect.name, category:"Effects", folder:"Built-in Effects", kind:"effect" as const })),
+    { id:"instrument:sampler", name:"Sample Instrument", category:"Instruments", folder:"Factory", kind:"instrument" as const },
+    { id:"instrument:synth", name:"Wavetable Synth", category:"Instruments", folder:"Factory", kind:"instrument" as const },
+    { id:"project:current", name:"Current Beat", category:"Projects", folder:"Current Room", kind:"project" as const }
+  ];
+
+  const browserFolders = ["All", ...Array.from(new Set(browserItems.filter(item => item.category === browserCategory).map(item => item.folder)))];
+  const filteredBrowserItems = browserItems.filter(item =>
+    item.category === browserCategory &&
+    (browserFolder === "All" || item.folder === browserFolder) &&
+    item.name.toLowerCase().includes(browserSearch.toLowerCase())
+  );
+
+  function dragBrowserItem(event: React.DragEvent, item: BrowserItem) {
+    event.dataTransfer.effectAllowed = "copy";
+    event.dataTransfer.setData("application/x-sorashi-browser-item", JSON.stringify(item));
+  }
+
+  function dropBrowserItem(event: React.DragEvent<HTMLDivElement>, trackId: string) {
+    event.preventDefault();
+    const raw = event.dataTransfer.getData("application/x-sorashi-browser-item");
+    const legacyAssetId = event.dataTransfer.getData("application/x-sorashi-drum-asset");
+    if (!raw && !legacyAssetId) return;
+    let item: BrowserItem | null = null;
+    if (raw) {
+      try { item = JSON.parse(raw) as BrowserItem; } catch { return; }
+    } else {
+      const asset = drumAssets.find(entry => entry.id === legacyAssetId);
+      if (asset) item = { id:"sample:"+asset.id, name:asset.name, category:"Samples", folder:asset.folder || asset.category, kind:"sample", previewUrl:asset.previewUrl, sourceAssetId:asset.id };
+    }
+    if (!item) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const start = Math.max(0, Math.round(((event.clientX - rect.left) / rect.width) * 32 / snap) * snap);
+    const kind: ClipKind = item.kind === "sample" ? "audio" : item.kind === "pattern" ? "pattern" : item.kind === "loop" ? "loop" : "midi";
+    const clip: Clip = { id:crypto.randomUUID(), name:item.name, kind, start, length:8, lane:0 };
+    setTracks(current => current.map(track => track.id === trackId ? { ...track, clips:[...track.clips, clip] } : track));
+    setSelectedClip(clip.id);
+    emit(kind === "audio" ? "ADD_AUDIO_CLIP" : kind === "pattern" ? "ADD_PATTERN_CLIP" : kind === "loop" ? "ADD_LOOP_CLIP" : "ADD_MIDI_CLIP", clip.id, { ...clip, assetId:item.sourceAssetId, browserItemId:item.id }, trackId);
+  }
+
   function addClip(kind: ClipKind) {
     const track = tracks[0];
     const clip: Clip = { id: crypto.randomUUID(), name: kind === "audio" ? "Audio Clip" : kind === "midi" ? "MIDI Clip" : kind === "pattern" ? "Pattern" : "Loop", kind, start: snap, length: 8, lane: 0 };
@@ -829,12 +880,20 @@ export default function App() {
       </div>
 
       <div className="main-layout">
-        <aside className="left-dock">
-          <DockHeader title="BROWSER" action="+" />
-          <div className="browser-search">⌕ <span>Search sounds</span></div>
-          <div className="browser-section"><span>CLIP TYPE</span>{(["audio", "midi", "pattern", "loop"] as ClipKind[]).map(kind => <button key={kind} onClick={() => addClip(kind)}>+ {kind.toUpperCase()}</button>)}</div>
-          <div className="browser-section"><span>PACKS</span>{["Drums", "Bass", "Keys", "Synths", "Textures"].map(item => <button key={item}>› {item}</button>)}</div>
-          <div className="browser-section"><span>DRUM KIT <label className="kit-category"><select value={assetCategory} onChange={event => setAssetCategory(event.target.value)}>{["Kicks","Snares","Claps","Hats","Percussion","808","FX","Other"].map(category => <option key={category}>{category}</option>)}</select></label></span><input className="kit-upload" type="file" accept=".wav,audio/wav" multiple onChange={event => { for (const file of Array.from(event.target.files ?? [])) void uploadDrumSample(file); event.currentTarget.value = ""; }} />{drumAssets.filter(asset => asset.category === assetCategory).map(asset => <div className="drum-asset" key={asset.id} draggable onDragStart={event => event.dataTransfer.setData("application/x-sorashi-drum-asset", asset.id)}><span>♪</span><div><b>{asset.name}</b><small>{asset.folder || asset.category} · {(asset.size / 1024).toFixed(0)} KB</small></div>{asset.previewUrl && <audio controls preload="none" src={asset.previewUrl} />}</div>)}</div><div className="browser-section sounds"><span>RECENT</span>{["Deep Kick", "Sub Bass 01", "Warm Piano", "Analog Pad", "Crisp Hat"].map(item => <button key={item} onDoubleClick={() => emit("ADD_SAMPLE", item, { name: item })}><b>♪</b>{item}</button>)}</div>
+        <aside className="left-dock browser-dock">
+          <DockHeader title="BROWSER / LIBRARY" action="+" />
+          <div className="browser-search"><span>⌕</span><input value={browserSearch} onChange={event => setBrowserSearch(event.target.value)} placeholder="Search library" /></div>
+          <div className="browser-categories">{["Samples","Drum Kits","Presets","Wavetables","Instruments","Effects","Projects"].map(category => <button key={category} className={browserCategory === category ? "active" : ""} onClick={() => { setBrowserCategory(category); setBrowserFolder("All"); }}>{category}</button>)}</div>
+          <div className="browser-folders"><span>FOLDERS</span>{browserFolders.map(folder => <button key={folder} className={browserFolder === folder ? "active" : ""} onClick={() => setBrowserFolder(folder)}>› {folder}</button>)}</div>
+          <div className="browser-library-list">
+            {filteredBrowserItems.map(item => <div key={item.id} className="browser-item" draggable onDragStart={event => dragBrowserItem(event, item)}>
+              <span className="browser-item-icon">{item.kind === "sample" ? "♪" : item.kind === "preset" ? "◈" : item.kind === "wavetable" ? "∿" : item.kind === "effect" ? "ƒx" : item.kind === "instrument" ? "⌁" : item.kind === "project" ? "▣" : "◆"}</span>
+              <div className="browser-item-main"><b>{item.name}</b><small>{item.folder}</small></div>
+              {item.previewUrl ? <audio controls preload="none" src={item.previewUrl} onClick={event => event.stopPropagation()} /> : item.kind === "sample" ? <button className="preview-button" title="Preview" onClick={() => ensureAudioEngine().previewTone?.(440)}>▶</button> : null}
+            </div>)}
+            {!filteredBrowserItems.length && <div className="browser-empty">Nothing found</div>}
+          </div>
+          <div className="browser-hint">DRAG ITEM → PLAYLIST / PROJECT</div>
         </aside>
 
         <section className="center-stage" onPointerMove={event => publishCursor(event.clientX, event.clientY, active)}>
@@ -861,7 +920,7 @@ export default function App() {
             {tracks.map(track => (
               <div className="arrangement-row" key={track.id}>
                 <div className="track-name"><i>{track.name.slice(0, 1)}</i><span>{track.name}</span><small>{track.groupId ? "GROUPED" : "Audio / MIDI"}</small></div>
-                <div className="clip-lane" onDoubleClick={() => addClip("midi")}>
+                <div className="clip-lane" onDoubleClick={() => addClip("midi")} onDragOver={event => { if (event.dataTransfer.types.includes("application/x-sorashi-browser-item") || event.dataTransfer.types.includes("application/x-sorashi-drum-asset")) { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; } }} onDrop={event => dropBrowserItem(event, track.id)}>
                   {track.clips.map(clip => {
                     const left = clip.start * 2.5;
                     const width = Math.max(clip.length * 2.5, 3);
