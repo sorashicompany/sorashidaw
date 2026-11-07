@@ -2,6 +2,7 @@ import { getTelegramWebApp } from "./telegram";
 
 export type AuthenticatedSession = {
   authenticated: true;
+  roomTicket: string;
   user: {
     id: number;
     first_name: string;
