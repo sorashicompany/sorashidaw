@@ -293,7 +293,7 @@ export default function App() {
     if (snapshot.synth) setSynth(snapshot.synth);
     if (Array.isArray(snapshot.effects)) setEffects(snapshot.effects);
     if (Array.isArray(snapshot.masterEffects)) setMasterEffects(snapshot.masterEffects);
-    if (Array.isArray(snapshot.mixer)) setMixer(snapshot.mixer);
+    if (Array.isArray(snapshot.mixer)) setMixer(snapshot.mixer);\n    if (Array.isArray(snapshot.assets)) setDrumAssets(snapshot.assets);
     if (snapshot.loop) {
       setLoopEnabled(Boolean(snapshot.loop.enabled));
       setLoopStartBeats(Number(snapshot.loop.startBeats ?? 0));
