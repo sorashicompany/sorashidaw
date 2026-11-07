@@ -79,7 +79,7 @@ export class AudioFxEngine {
           {id:"eq5",frequency:3500,gain:0,q:1,type:"peaking",enabled:true},
           {id:"eq6",frequency:9000,gain:0,q:.71,type:"highshelf",enabled:true}
         ];
-        eqFilters = bands.map(b => { const f=c.createBiquadFilter(); f.type=b.type; f.frequency.value=clamp(b.frequency,20,20000); f.gain.value=clamp(b.gain,-24,24); f.Q.value=clamp(b.q,.05,30); f.enabled=b.enabled; return f; });
+        eqFilters = bands.map(b => { const f=c.createBiquadFilter(); f.type=b.enabled ? b.type : "allpass"; f.frequency.value=clamp(b.frequency,20,20000); f.gain.value=b.enabled ? clamp(b.gain,-24,24) : 0; f.Q.value=clamp(b.q,.05,30); return f; });
         connectChain([input,...eqFilters,wetGain]); processor=eqFilters[0] ?? input;
         break;
       }
