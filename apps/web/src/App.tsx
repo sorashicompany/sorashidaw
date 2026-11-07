@@ -39,7 +39,9 @@ type Clip = {
 };
 
 type Marker = { id: string; position: number; label: string };
+type AutomationTarget = "volume" | "pan" | "filter.cutoff" | "synth.parameter" | "effect.parameter" | "send" | "master.parameter";
 type AutomationPoint = { id: string; position: number; value: number };
+type AutomationLane = { id: string; targetId: string; target: AutomationTarget; parameter: string; label: string; points: AutomationPoint[] };
 
 const GRID = 16;
 const DRUM_SAMPLES = ["Deep Kick", "Snare Tight", "Clap Wide", "Closed Hat", "Open Hat", "Perc Click", "808 Sub", "FX Noise"];
@@ -79,9 +81,15 @@ export default function App() {
   const [bar, setBar] = useState(1);
   const [tracks, setTracks] = useState(INITIAL_TRACKS);
   const [markers, setMarkers] = useState<Marker[]>([{ id: "m1", position: 0, label: "INTRO" }, { id: "m2", position: 32, label: "DROP" }]);
-  const [automation, setAutomation] = useState<AutomationPoint[]>([
-    { id: "a1", position: 0, value: 42 }, { id: "a2", position: 24, value: 76 }, { id: "a3", position: 40, value: 48 }
+  const [automation, setAutomation] = useState<AutomationLane[]>([
+    { id:"auto-filter", targetId:"synth", target:"filter.cutoff", parameter:"cutoff", label:"Filter Cutoff", points:[
+      { id:"a1", position:0, value:42 }, { id:"a2", position:24, value:76 }, { id:"a3", position:40, value:48 }
+    ] },
+    { id:"auto-master", targetId:"master", target:"volume", parameter:"volume", label:"Master Volume", points:[
+      { id:"mv1", position:0, value:72 }, { id:"mv2", position:32, value:86 }
+    ] }
   ]);
+  const [activeAutomationLane, setActiveAutomationLane] = useState("auto-filter");
   const [selectedClip, setSelectedClip] = useState<string | null>("drums-1");
   const [clipboard, setClipboard] = useState<Clip | null>(null);
   const [zoom, setZoom] = useState(1);
@@ -124,6 +132,40 @@ export default function App() {
   const realAudioEngineRef = useRef<RealAudioEngine | null>(null);
   const { state: roomState, presence, updatePresence, publishCursor, publish, publishTransport, transport, roomTicket, chatId, serverOffsetMs } = useBeatRoom();
   const appliedOps = useRef(new Set<string>());
+
+  const automationValueAt = (lane: AutomationLane, position: number) => {
+    const points = [...lane.points].sort((a,b) => a.position - b.position);
+    if (!points.length) return 0;
+    if (position <= points[0].position) return points[0].value;
+    if (position >= points[points.length - 1].position) return points[points.length - 1].value;
+    for (let i=1; i<points.length; i++) {
+      if (position <= points[i].position) {
+        const a = points[i-1], b = points[i];
+        const t = (position-a.position) / Math.max(.0001, b.position-a.position);
+        return a.value + (b.value-a.value)*t;
+      }
+    }
+    return points[points.length-1].value;
+  };
+
+  const publishAutomationPoint = (lane: AutomationLane, point: AutomationPoint) => {
+    setAutomation(current => current.map(item => item.id === lane.id ? { ...item, points: [...item.points.filter(p => p.id !== point.id), point].sort((a,b) => a.position-b.position) } : item));
+    publish("SET_AUTOMATION", lane.id, { laneId: lane.id, targetId: lane.targetId, target: lane.target, parameter: lane.parameter, point });
+  };
+
+  const addAutomationPoint = (event: React.MouseEvent<HTMLDivElement>, lane: AutomationLane) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const position = Math.max(0, Math.min(100, Math.round(((event.clientX - rect.left) / rect.width) * 100 / 2.5) * 2.5));
+    const value = Math.max(0, Math.min(100, 100 - ((event.clientY - rect.top) / rect.height) * 100));
+    publishAutomationPoint(lane, { id: crypto.randomUUID(), position, value });
+  };
+
+  const automationParamValue = (lane: AutomationLane, value: number) => {
+    if (lane.target === "filter.cutoff") return 40 + Math.pow(value / 100, 2) * 19960;
+    if (lane.target === "volume" || lane.target === "send") return -60 + value * .6;
+    if (lane.target === "pan") return value * 2 - 100;
+    return value;
+  };
 
   const [loopEnabled, setLoopEnabled] = useState(false);
   const [loopStartBeats, setLoopStartBeats] = useState(0);
@@ -784,10 +826,15 @@ export default function App() {
             <div className="automation-row">
               <div className="track-name"><i>∿</i><span>AUTOMATION</span><small>Filter Cutoff</small></div>
               <div className="automation-lane">
-                <svg viewBox="0 0 100 100" preserveAspectRatio="none">
-                  <polyline points={automation.map(point => point.position + "," + (100 - point.value)).join(" ")} />
-                </svg>
-                {automation.map(point => <button key={point.id} className="automation-point" style={{ left: point.position + "%", bottom: point.value + "%" }} />)}
+                <div className="automation-targets">
+                  {automation.map(lane => <button key={lane.id} className={lane.id === automation[0]?.id ? "active" : ""} onClick={() => setActiveAutomationLane(lane.id)}>{lane.label}</button>)}
+                </div>
+                {automation.filter(lane => lane.id === activeAutomationLane).map(lane => <div key={lane.id} className="automation-canvas" onDoubleClick={event => addAutomationPoint(event, lane)}>
+                  <svg viewBox="0 0 100 100" preserveAspectRatio="none">
+                    <polyline points={lane.points.map(point => point.position + "," + (100 - point.value)).join(" ")} />
+                  </svg>
+                  {lane.points.map(point => <button key={point.id} className="automation-point" style={{ left: point.position + "%", bottom: point.value + "%" }} onDoubleClick={event => { event.stopPropagation(); publish("DELETE_AUTOMATION", lane.id, { laneId: lane.id, pointId: point.id }); setAutomation(current => current.map(item => item.id === lane.id ? { ...item, points: item.points.filter(p => p.id !== point.id) } : item)); }} />)}
+                </div>)}
               </div>
             </div>
 
