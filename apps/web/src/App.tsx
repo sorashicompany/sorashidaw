@@ -4,6 +4,7 @@ import "./styles.css";
 import { WAVETABLES, SYNTH_PRESETS, type SynthState } from "../../../packages/shared/src/synth";
 import { BUILT_IN_EFFECTS, defaultEffectParams, type BuiltInEffectType, type EffectInstance, type ParametricEqBand, DEFAULT_EQ_BANDS } from "../../../packages/shared/src/effects";
 import { AudioFxEngine } from "./audio-fx";
+import { RealAudioEngine } from "./audio-engine";
 type MidiCc = { controller: number; value: number; channel: number };
 type MixerChannel = { id:string; name:string; type:"channel"|"bus"|"group"|"send"|"master"; volume:number; pan:number; mute:boolean; solo:boolean; peak:number; route:string; inserts:string[]; sends:Record<string,number>; busId?:string; };
 
@@ -120,8 +121,39 @@ export default function App() {
   const audioFxRef = useRef<AudioFxEngine | null>(null);
   const eqCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const masterTestOscRef = useRef<OscillatorNode | null>(null);
+  const realAudioEngineRef = useRef<RealAudioEngine | null>(null);
   const { state: roomState, presence, updatePresence, publishCursor, publish, events, roomTicket, chatId } = useBeatRoom();
   const appliedOps = useRef(new Set<string>());
+
+  const togglePlayback = async () => {
+    if (!realAudioEngineRef.current) {
+      realAudioEngineRef.current = new RealAudioEngine();
+      realAudioEngineRef.current.onBar = nextBar => setBar(nextBar);
+    }
+    const engine = realAudioEngineRef.current;
+    await engine.setMasterChain(masterEffects);
+    engine.setState(bpm, drumChannels, pianoNotes);
+    const next = !playing;
+    setPlaying(next);
+    if (next) await engine.setPlaying(true, bpm);
+    else { engine.stop(); setBar(1); }
+  };
+
+  useEffect(() => {
+    const engine = realAudioEngineRef.current;
+    if (!engine) return;
+    engine.setState(bpm, drumChannels, pianoNotes);
+  }, [bpm, drumChannels, pianoNotes]);
+
+  useEffect(() => {
+    const engine = realAudioEngineRef.current;
+    if (!engine || !playing) return;
+    void engine.setMasterChain(masterEffects);
+  }, [masterEffects, playing]);
+
+  useEffect(() => () => {
+    realAudioEngineRef.current?.stop();
+  }, []);
 
   useEffect(() => { updatePresence(active); }, [active, updatePresence]);
 
@@ -599,8 +631,8 @@ export default function App() {
         <div className="brand"><div className="brand-mark">S</div><div><strong>SORASHI DAW</strong><span>shared beat room</span></div></div>
         <div className="project"><button className="project-name">Untitled Beat <span>⌄</span></button><span className="save-state"><i /> Saved</span></div>
         <div className="transport">
-          <button className="transport-button" onClick={() => setPlaying(value => !value)}>{playing ? "STOP" : "PLAY"}</button>
-          <button className="transport-icon" onClick={() => setBar(1)}>■</button>
+          <button className="transport-button" onClick={() => void togglePlayback()}>{playing ? "STOP" : "PLAY"}</button>
+          <button className="transport-icon" onClick={() => { setBar(1); realAudioEngineRef.current?.seek(0); }}>■</button>
           <span className="tempo-label">BPM</span>
           <input value={bpm} type="number" min="40" max="240" onChange={event => { const value = Number(event.target.value); setBpm(value); emit("CHANGE_BPM", "project", { bpm: value }); }} />
           <span className="position">00:{String(bar).padStart(2, "0")}:00</span>
