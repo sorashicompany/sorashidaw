@@ -3,6 +3,7 @@ import { useBeatRoom } from "./collaboration";
 import "./styles.css";
 import { WAVETABLES, SYNTH_PRESETS, type SynthState } from "../../../packages/shared/src/synth";
 type MidiCc = { controller: number; value: number; channel: number };
+type MixerChannel = { id:string; name:string; type:"channel"|"bus"|"group"|"send"|"master"; volume:number; pan:number; mute:boolean; solo:boolean; peak:number; route:string; inserts:string[]; sends:Record<string,number>; busId?:string; };
 
 const windows = ["Playlist", "Step Sequencer", "Piano Roll", "Mixer", "Browser", "Synthesizer", "Effects"] as const;
 type WindowName = (typeof windows)[number];
@@ -39,6 +40,17 @@ type AutomationPoint = { id: string; position: number; value: number };
 
 const GRID = 16;
 const DRUM_SAMPLES = ["Deep Kick", "Snare Tight", "Clap Wide", "Closed Hat", "Open Hat", "Perc Click", "808 Sub", "FX Noise"];
+const INITIAL_MIXER: MixerChannel[] = [
+ {id:"drums",name:"Drums",type:"channel",volume:-1.2,pan:0,mute:false,solo:false,peak:-6,route:"Drum Bus",inserts:["Transient","Saturator"],sends:{A:-18,B:-24},busId:"drum-bus"},
+ {id:"bass",name:"Bass",type:"channel",volume:-3,pan:0,mute:false,solo:false,peak:-9,route:"Music Bus",inserts:["EQ","Compressor"],sends:{A:-24,B:-30},busId:"music-bus"},
+ {id:"keys",name:"Keys",type:"channel",volume:-3,pan:-8,mute:false,solo:false,peak:-12,route:"Music Bus",inserts:["EQ"],sends:{A:-20,B:-30},busId:"music-bus"},
+ {id:"synth",name:"Synth",type:"channel",volume:-4,pan:12,mute:false,solo:false,peak:-7,route:"Music Bus",inserts:["Filter","Chorus"],sends:{A:-15,B:-20},busId:"music-bus"},
+ {id:"drum-bus",name:"Drum Bus",type:"bus",volume:-1,pan:0,mute:false,solo:false,peak:-5,route:"MASTER",inserts:["Glue Comp"],sends:{A:-12},},
+ {id:"music-bus",name:"Music Bus",type:"bus",volume:-2,pan:0,mute:false,solo:false,peak:-8,route:"MASTER",inserts:["EQ","Limiter"],sends:{A:-18},},
+ {id:"fx-group",name:"FX Group",type:"group",volume:-6,pan:0,mute:false,solo:false,peak:-14,route:"MASTER",inserts:["Reverb"],sends:{A:-10},},
+ {id:"send-a",name:"Reverb A",type:"send",volume:-8,pan:0,mute:false,solo:false,peak:-18,route:"MASTER",inserts:["Hall Reverb"],sends:{}},
+ {id:"master",name:"Master",type:"master",volume:0,pan:0,mute:false,solo:false,peak:-3,route:"OUTPUT",inserts:["Glue","Limiter"],sends:{}}
+];
 const INITIAL_TRACKS: Track[] = [
   { id: "drums", name: "DRUMS", color: "violet", clips: [
     { id: "drums-1", name: "Kit Loop", kind: "pattern", start: 0, length: 16, lane: 0 },
@@ -96,6 +108,7 @@ export default function App() {
   const [midiChannel, setMidiChannel] = useState(1);
   const [midiCC, setMidiCC] = useState<MidiCc[]>([]);
   const [midiHeld, setMidiHeld] = useState<number[]>([]);
+  const [mixer, setMixer] = useState<MixerChannel[]>(INITIAL_MIXER);
   const { state: roomState, presence, updatePresence, publishCursor, publish, events } = useBeatRoom();
   const appliedOps = useRef(new Set<string>());
 
@@ -108,6 +121,15 @@ export default function App() {
       .then(result => setDrumAssets(result.assets))
       .catch(() => undefined);
   }, [roomTicket, chatId]);
+
+  useEffect(() => {
+    for (const event of events) {
+      if (event.type !== "sync.operation") continue;
+      const op=event.operation;
+      if (op.type==="SET_MIXER_PARAMETER") setMixer(current=>current.map(ch=>ch.id===op.targetId ? {...ch,[String(op.payload.key)]:op.payload.value} : ch));
+      if (op.type==="ADD_MIXER_CHANNEL" && op.payload.channel) setMixer(current=>current.some(ch=>ch.id===op.targetId)?current:[...current.filter(ch=>ch.id!=="master"),op.payload.channel as MixerChannel,current.find(ch=>ch.id==="master")!]);
+    }
+  },[events]);
 
   useEffect(() => {
     for (const event of events) {
@@ -300,6 +322,17 @@ export default function App() {
     setTracks(current => current.map(track => track.id === "drums" ? { ...track, clips: [...track.clips, clip] } : track));
     setSelectedClip(clip.id);
     emit("ADD_PATTERN_CLIP", clip.id, clip, "drums");
+  }
+
+  function updateMixer(id:string, patch:Partial<MixerChannel>) {
+    setMixer(current => current.map(ch => ch.id===id ? {...ch,...patch} : ch));
+    for (const [key,value] of Object.entries(patch)) publish("SET_MIXER_PARAMETER", id, {key,value}, id);
+  }
+  function addMixerChannel(type:MixerChannel["type"]) {
+    const id=crypto.randomUUID(); const name=type==="bus"?"New Bus":type==="group"?"New Group":"New Channel";
+    const channel:MixerChannel={id,name,type,volume:0,pan:0,mute:false,solo:false,peak:-60,route:"master",inserts:[],sends:{}};
+    setMixer(current=>[...current.filter(ch=>ch.id!=="master"),channel,current.find(ch=>ch.id==="master")!]);
+    publish("ADD_MIXER_CHANNEL",id,{channel});
   }
 
   function emitMidi(type: "MIDI_NOTE_ON" | "MIDI_NOTE_OFF" | "SET_MIDI_CC", payload: Record<string, unknown>) {
@@ -508,7 +541,11 @@ export default function App() {
         </aside>
       </div>
 
-      <footer className="bottom-dock">
+      <Panel title="Mixer" subtitle="channels · buses · groups · sends · master" className="full-mixer-panel">
+<div className="mixer-toolbar"><button onClick={()=>addMixerChannel("channel")}>+ CHANNEL</button><button onClick={()=>addMixerChannel("bus")}>+ BUS</button><button onClick={()=>addMixerChannel("group")}>+ GROUP</button><button onClick={()=>addMixerChannel("send")}>+ SEND</button><span>{mixer.length} strips</span></div>
+<div className="full-mixer">{mixer.map(ch=><div className={"mixer-strip "+ch.type} key={ch.id}><div className="strip-head"><b>{ch.name}</b><small>{ch.type}</small></div><div className="meter"><i style={{height:Math.max(3,Math.min(100,(60+ch.peak)*1.5))+"%"}}/></div><input className="fader" type="range" min="-60" max="6" step=".1" value={ch.volume} onChange={e=>updateMixer(ch.id,{volume:Number(e.target.value)})}/><div className="strip-db">{ch.volume.toFixed(1)} dB</div><input type="range" min="-100" max="100" value={ch.pan} onChange={e=>updateMixer(ch.id,{pan:Number(e.target.value)})}/><div className="strip-buttons"><button className={ch.mute?"on":""} onClick={()=>updateMixer(ch.id,{mute:!ch.mute})}>M</button><button className={ch.solo?"on":""} onClick={()=>updateMixer(ch.id,{solo:!ch.solo})}>S</button></div><select value={ch.route} onChange={e=>updateMixer(ch.id,{route:e.target.value})}>{mixer.filter(x=>x.type==="bus"||x.type==="master").map(x=><option key={x.id}>{x.name}</option>)}</select><div className="insert-list">{ch.inserts.map((fx,i)=><button key={i} onClick={()=>{const inserts=ch.inserts.filter((_,j)=>j!==i);updateMixer(ch.id,{inserts})}}>{fx} ×</button>)}<button onClick={()=>updateMixer(ch.id,{inserts:[...ch.inserts,"EQ"]})}>+ FX</button></div><div className="send-list">{Object.entries(ch.sends).map(([send,value])=><label key={send}>{send}<input type="range" min="-60" max="0" value={value} onChange={e=>updateMixer(ch.id,{sends:{...ch.sends,[send]:Number(e.target.value)}})}/></label>)}</div></div>)}</div>
+</Panel>
+<footer className="bottom-dock">
         <div className="mixer-title"><span>MIXER</span><small>5 channels</small></div>
         {["Drums", "Bass", "Keys", "Synth", "Master"].map((channel, index) => <div className="mixer-channel" key={channel}><div className="channel-meter"><i style={{ height: (38 + index * 8) + "%" }} /></div><div className="channel-fader"><i style={{ bottom: (25 + index * 8) + "%" }} /></div><strong>{channel}</strong><small>{index === 4 ? "0.0 dB" : index === 0 ? "-1.2 dB" : "-3.0 dB"}</small></div>)}
         <div className="master-strip"><span>MASTER</span><b>-0.3 dB</b><div /></div>
