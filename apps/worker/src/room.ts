@@ -45,14 +45,14 @@ export class BeatRoom extends DurableObject<RoomEnv> {
     return { state: state ?? null, version, updatedAt };
   }
 
-  async saveProjectState(state: unknown, clientVersion?: number): Promise<{ version: number; updatedAt: string; historyVersion: number | null }> {
+  async saveProjectState(state: unknown, clientVersion?: number, forceHistory = false): Promise<{ version: number; updatedAt: string; historyVersion: number | null }> {
     const current = (await this.ctx.storage.get<number>("project-version")) ?? 0;
     const version = Math.max(current + 1, Number(clientVersion ?? 0));
     const updatedAt = new Date().toISOString();
     const hash = await this.hashState(state);
     const historyIndex = (await this.ctx.storage.get<Array<{ version: number; label: string; createdAt: string; hash: string }>>("project-history-index")) ?? [];
     const last = historyIndex[historyIndex.length - 1];
-    const shouldVersion = !last || last.hash !== hash || Date.parse(updatedAt) - Date.parse(last.createdAt) >= HISTORY_MIN_INTERVAL_MS;
+    const shouldVersion = forceHistory || !last || (last.hash !== hash && Date.parse(updatedAt) - Date.parse(last.createdAt) >= HISTORY_MIN_INTERVAL_MS);
     let historyVersion: number | null = last?.version ?? null;
     await this.ctx.storage.put("project-state", state);
     await this.ctx.storage.put("project-version", version);
@@ -77,7 +77,7 @@ export class BeatRoom extends DurableObject<RoomEnv> {
   async restoreProjectVersion(version: number): Promise<{ version: number; restoredFrom: number; updatedAt: string }> {
     const target = await this.ctx.storage.get<ProjectVersion>("project-history:" + version);
     if (!target) throw new Error("Project version not found");
-    const restored = await this.saveProjectState(structuredClone(target.state));
+    const restored = await this.saveProjectState(structuredClone(target.state), undefined, true);
     const updatedAt = new Date().toISOString();
     return { version: restored.historyVersion ?? version, restoredFrom: version, updatedAt };
   }
