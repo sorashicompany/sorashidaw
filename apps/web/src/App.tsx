@@ -104,6 +104,28 @@ export default function App() {
   }, [events]);
 
   useEffect(() => {
+    for (const event of events) {
+      if (event.type !== "sync.operation") continue;
+      const op = event.operation;
+      if (op.type === "ADD_NOTE") {
+        const note = op.payload as unknown as MidiNote;
+        setPianoNotes(current => current.some(item => item.id === note.id) ? current : [...current, note]);
+      } else if (op.type === "MOVE_NOTE") {
+        const pitchDelta = Number(op.payload.pitchDelta ?? 0);
+        const startDelta = Number(op.payload.startDelta ?? 0);
+        const lengthDelta = Number(op.payload.lengthDelta ?? 0);
+        setPianoNotes(current => current.map(note => note.id === op.targetId ? { ...note, pitch: Math.max(0, Math.min(127, note.pitch + pitchDelta)), start: Math.max(0, quantize(note.start + startDelta)), length: Math.max(pianoSnap, note.length + lengthDelta) } : note));
+      } else if (op.type === "CHANGE_VELOCITY") {
+        const velocity = Number(op.payload.velocity);
+        setPianoNotes(current => current.map(note => note.id === op.targetId ? { ...note, velocity } : note));
+      } else if (op.type === "DELETE_NOTE") {
+        setPianoNotes(current => current.filter(note => note.id !== op.targetId));
+        setSelectedNotes(current => current.filter(id => id !== op.targetId));
+      }
+    }
+  }, [events, pianoSnap]);
+
+  useEffect(() => {
     if (!playing) return;
     const timer = window.setInterval(() => setBar(current => current >= 16 ? 1 : current + 1), 60000 / bpm / 2);
     return () => window.clearInterval(timer);
