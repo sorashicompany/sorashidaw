@@ -236,3 +236,32 @@ R2 objects are scoped to the verified Telegram chat / Beat Room. Project snapsho
 `Worker / persistence layer → Supabase → durable relational metadata and project records`
 
 No module receives room authority merely because it is a frontend component. Telegram identity is established at the Worker boundary, and room participation is derived from verified chat context.
+
+## Plugin-oriented extensibility
+
+The DAW core is separated from content and optional capabilities through a shared plugin contract in `packages/shared/src/plugins.ts` and a web registry in `apps/web/src/plugin-registry.ts`.
+
+A plugin is identified by a stable `id` and semantic `version`, declares its kind and required runtimes, and can contribute serializable assets and future runtime capabilities. The registry is intentionally independent from the current UI components, so adding content does not require rewriting room/auth/realtime/persistence code.
+
+Supported extension kinds:
+
+- Drum Kits.
+- Sample Packs.
+- Synthesizers.
+- Wavetables.
+- Presets.
+- Effects.
+- Instruments.
+- MIDI tools.
+- Audio plugins.
+- Additional collaborative features.
+
+The same model supports the future custom Drum Kit without moving its sample metadata into Supabase. A supplied kit can be committed as repository content and registered as a plugin asset pack; large WAV/binary files remain a storage concern and can be referenced from R2 when appropriate. The plugin manifest carries identity, metadata and asset references, while the audio/UI implementation can be added behind the declared runtime boundary.
+
+Collaborative plugins use the existing operation protocol through the generic `PLUGIN_OPERATION` operation type. The Worker and Durable Object therefore do not need a new room architecture for each future tool. Plugin-specific actions remain inside the plugin payload and are still ordered by the same room sequence.
+
+Extension boundary:
+
+`plugin manifest → registry → UI/audio/MIDI runtime → existing collaboration protocol → existing Beat Room`
+
+The core room, Telegram authorization, project persistence, WebSocket transport and R2 isolation remain unchanged when a new plugin is introduced. Plugin registration is additive rather than a replacement for the core DAW modules.
