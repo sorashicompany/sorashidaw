@@ -9,7 +9,9 @@ export default {
     const url = new URL(request.url);
     if (request.method === "POST" && url.pathname === "/api/auth/telegram") return authenticateTelegram(request, env);
     if (request.method === "GET" && url.pathname === "/api/room/socket") return connectRoomSocket(request, env);
-    if (url.pathname === "/api/room/state" && (request.method === "GET" || request.method === "PUT")) return roomState(request, env);\n    if (url.pathname === "/api/room/assets" && (request.method === "GET" || request.method === "POST")) return roomAssets(request, env);\n    if (url.pathname.startsWith("/api/room/assets/") && request.method === "GET") return roomAsset(request, env);
+    if (url.pathname === "/api/room/state" && (request.method === "GET" || request.method === "PUT")) return roomState(request, env);
+    if (url.pathname === "/api/room/history" && request.method === "GET") return roomHistory(request, env);
+    if (url.pathname.startsWith("/api/room/history/") && request.method === "POST") return restoreRoomVersion(request, env);\n    if (url.pathname === "/api/room/assets" && (request.method === "GET" || request.method === "POST")) return roomAssets(request, env);\n    if (url.pathname.startsWith("/api/room/assets/") && request.method === "GET") return roomAsset(request, env);
     if (request.method === "GET" && url.pathname === "/health") return json({ ok: true, service: "sorashidaw-api" });
     return json({ error: "Not found" }, 404);
   },
@@ -74,6 +76,32 @@ async function roomState(request: Request, env: Env): Promise<Response> {
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : "Project state request failed" }, 401);
   }
+}
+
+async function roomHistory(request: Request, env: Env): Promise<Response> {
+  const auth = await roomStubFromRequest(request, env);
+  if (auth instanceof Response) return auth;
+  return json(await auth.stub.getProjectHistory());
+}
+
+async function restoreRoomVersion(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const version = Number(url.pathname.slice("/api/room/history/".length));
+  if (!Number.isSafeInteger(version) || version < 1) return json({ error: "Invalid version" }, 400);
+  const auth = await roomStubFromRequest(request, env);
+  if (auth instanceof Response) return auth;
+  try { return json(await auth.stub.restoreProjectVersion(version)); }
+  catch (error) { return json({ error: error instanceof Error ? error.message : "Restore failed" }, 404); }
+}
+
+async function roomStubFromRequest(request: Request, env: Env): Promise<{ stub: DurableObjectStub<BeatRoom>; chatId: number } | Response> {
+  const url = new URL(request.url);
+  const chatId = Number(url.searchParams.get("chatId")); const ticket = url.searchParams.get("ticket");
+  if (!Number.isSafeInteger(chatId) || !ticket) return json({ error: "chatId and ticket are required" }, 401);
+  try {
+    const verified = await verifyRoomTicket(ticket, chatId, env.TELEGRAM_BOT_TOKEN);
+    return { stub: env.BEAT_ROOM.getByName(String(verified.chatId)), chatId: verified.chatId };
+  } catch (error) { return json({ error: error instanceof Error ? error.message : "Room authentication failed" }, 401); }
 }
 
 async function roomAssets(request: Request, env: Env): Promise<Response> {
