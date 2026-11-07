@@ -113,10 +113,31 @@ export default function App() {
   const [midiCC, setMidiCC] = useState<MidiCc[]>([]);
   const [midiHeld, setMidiHeld] = useState<number[]>([]);
   const [mixer, setMixer] = useState<MixerChannel[]>(INITIAL_MIXER);
-  const { state: roomState, presence, updatePresence, publishCursor, publish, events } = useBeatRoom();
+  const [effects, setEffects] = useState<EffectInstance[]>(INITIAL_EFFECTS);
+  const [gainReduction, setGainReduction] = useState<Record<string, number>>({});
+  const audioFxRef = useRef<AudioFxEngine | null>(null);
+  const eqCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const { state: roomState, presence, updatePresence, publishCursor, publish, events, roomTicket, chatId } = useBeatRoom();
   const appliedOps = useRef(new Set<string>());
 
   useEffect(() => { updatePresence(active); }, [active, updatePresence]);
+
+  useEffect(() => {
+    let frame = 0;
+    const tick = () => {
+      const engine = audioFxRef.current;
+      if (engine) {
+        const next: Record<string, number> = {};
+        effects.filter(effect => effect.type === "compressor").forEach(effect => {
+          next[effect.id] = engine.getGainReduction("effects-audition", effect.id);
+        });
+        setGainReduction(next);
+      }
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [effects]);
 
   useEffect(() => {
     if (!roomTicket || !chatId) return;
@@ -637,7 +658,8 @@ export default function App() {
   </div>)}
   <div className="effect-rack">{effects.filter(effect=>effect.type!=="parametric-eq").map(effect=><div className={"effect-card "+(effect.bypass?"bypassed":"")} key={effect.id}>
     <div className="effect-head"><b>{effect.name}</b><span>{effect.type}</span><button onClick={()=>updateEffect(effect.id,{bypass:!effect.bypass})}>{effect.bypass?"BYP":"ON"}</button><button onClick={()=>{setEffects(current=>current.filter(item=>item.id!==effect.id));publish("REMOVE_EFFECT",effect.id,{}, "master")}}>×</button></div>
-    <div className="effect-params">{Object.entries(effect.params).filter(([,value])=>typeof value==="number").slice(0,7).map(([key,value])=><label key={key}><span>{key.replace(/([A-Z])/g," $1")}</span><input type="range" min={key.toLowerCase().includes("freq")||key.toLowerCase().includes("cutoff")?20:-60} max={key.toLowerCase().includes("freq")||key.toLowerCase().includes("cutoff")?20000:100} step={key.toLowerCase().includes("freq")||key.toLowerCase().includes("cutoff")?1:0.1} value={Number(value)} onChange={event=>updateEffectParam(effect.id,key,Number(event.target.value))}/><b>{Number(value).toFixed(2)}</b></label>)}</div>
+    {effect.type==="compressor" && <div className="compressor-meter"><div className="gr-meter"><i style={{height:Math.min(100,Math.max(0,Math.abs(gainReduction[effect.id] ?? 0)/30*100))+"%"}} /></div><div><b>{(gainReduction[effect.id] ?? 0).toFixed(1)} dB</b><span>GAIN REDUCTION</span></div></div>}
+    <div className="effect-params">{Object.entries(effect.params).filter(([,value])=>typeof value==="number").map(([key,value])=><label key={key}><span>{key.replace(/([A-Z])/g," $1")}</span><input type="range" min={key==="threshold"||key==="makeup"?-60:key==="ratio"?1:key==="attack"||key==="release"?0:-60} max={key==="threshold"?0:key==="ratio"?20:key==="attack"||key==="release"?1:key==="makeup"?24:100} step={key==="ratio"?0.1:key==="attack"||key==="release"?0.001:0.1} value={Number(value)} onChange={event=>updateEffectParam(effect.id,key,Number(event.target.value))}/><b>{Number(value).toFixed(2)}</b></label>)}</div>
   </div>)}</div>
 </Panel>
 <footer className="bottom-dock">
