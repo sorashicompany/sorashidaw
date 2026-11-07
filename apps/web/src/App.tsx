@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode, type MouseEvent } from "react";
 import { useBeatRoom } from "./collaboration";
 import "./styles.css";
 import { WAVETABLES, SYNTH_PRESETS, type SynthState } from "../../../packages/shared/src/synth";
@@ -153,7 +153,7 @@ export default function App() {
     publish("SET_AUTOMATION", lane.id, { laneId: lane.id, targetId: lane.targetId, target: lane.target, parameter: lane.parameter, point });
   };
 
-  const addAutomationPoint = (event: React.MouseEvent<HTMLDivElement>, lane: AutomationLane) => {
+  const addAutomationPoint = (event: MouseEvent<HTMLDivElement>, lane: AutomationLane) => {
     const rect = event.currentTarget.getBoundingClientRect();
     const position = Math.max(0, Math.min(100, Math.round(((event.clientX - rect.left) / rect.width) * 100 / 2.5) * 2.5));
     const value = Math.max(0, Math.min(100, 100 - ((event.clientY - rect.top) / rect.height) * 100));
@@ -314,7 +314,21 @@ export default function App() {
     for (const event of events) {
       if (event.type !== "sync.operation") continue;
       const op = event.operation;
-      if (op.type === "SET_EFFECT_PARAMETER") {
+      if (op.type === "SET_AUTOMATION") {
+        const laneId = String(op.payload.laneId ?? op.targetId);
+        const point = op.payload.point as AutomationPoint | undefined;
+        if (point) {
+          setAutomation(current => current.map(lane => lane.id === laneId
+            ? { ...lane, points: [...lane.points.filter(item => item.id !== point.id), point].sort((a,b) => a.position-b.position) }
+            : lane));
+        }
+        continue;
+      } else if (op.type === "DELETE_AUTOMATION") {
+        const laneId = String(op.payload.laneId ?? op.targetId);
+        const pointId = String(op.payload.pointId ?? "");
+        setAutomation(current => current.map(lane => lane.id === laneId ? { ...lane, points: lane.points.filter(point => point.id !== pointId) } : lane));
+        continue;
+      } else if (op.type === "SET_EFFECT_PARAMETER") {
         if (op.targetId.startsWith("masterfx:")) {
           const effectId = op.targetId.slice(9);
           const key = String(op.payload.key);
@@ -827,7 +841,7 @@ export default function App() {
               <div className="track-name"><i>∿</i><span>AUTOMATION</span><small>Filter Cutoff</small></div>
               <div className="automation-lane">
                 <div className="automation-targets">
-                  {automation.map(lane => <button key={lane.id} className={lane.id === automation[0]?.id ? "active" : ""} onClick={() => setActiveAutomationLane(lane.id)}>{lane.label}</button>)}
+                  {automation.map(lane => <button key={lane.id} className={lane.id === activeAutomationLane ? "active" : ""} onClick={() => setActiveAutomationLane(lane.id)}>{lane.label}</button>)}
                 </div>
                 {automation.filter(lane => lane.id === activeAutomationLane).map(lane => <div key={lane.id} className="automation-canvas" onDoubleClick={event => addAutomationPoint(event, lane)}>
                   <svg viewBox="0 0 100 100" preserveAspectRatio="none">
