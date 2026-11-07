@@ -1,5 +1,7 @@
 export interface Env {
   TELEGRAM_BOT_TOKEN: string;
+  SUPABASE_URL: string;
+  SUPABASE_SERVICE_ROLE_KEY: string;
 }
 
 import { verifyTelegramInitData } from "./telegram";
@@ -51,6 +53,10 @@ async function authenticateTelegram(request: Request, env: Env): Promise<Respons
         type: data.chat.type ?? data.chat_type,
         title: data.chat.title,
         username: data.chat.username,
+      },
+      room: {
+        key: String(data.chat.id),
+        source: "telegram_chat",
       },
     });
   } catch {
