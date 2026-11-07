@@ -32,13 +32,31 @@ async function authenticateTelegram(request: Request, env: Env): Promise<Respons
   try {
     const data = await verifyTelegramInitData(body.initData, env.TELEGRAM_BOT_TOKEN);
     if (!data.user) return json({ error: "Telegram user is missing" }, 401);
-    if (!data.chat) return json({ error: "Telegram chat context is missing" }, 401);
-    const roomTicket = await createRoomTicket(data.user.id, data.chat.id, env.TELEGRAM_BOT_TOKEN, { firstName: data.user.first_name, username: data.user.username, avatarUrl: data.user.photo_url });
-    await supabaseWorkerCall(env, "load", data.chat.id, data.user.id, { first_name: data.user.first_name, username: data.user.username, last_name: data.user.last_name, chat_type: data.chat.type ?? data.chat_type, chat_title: data.chat.title, chat_username: data.chat.username });
+    const chatId =
+      data.chat?.id ??
+      (data.chat_type === "private" || !data.chat_type ? data.user.id : null);
+    if (chatId == null) return json({ error: "Telegram chat context is missing" }, 401);
+    const chat = data.chat ?? {
+      id: chatId,
+      type: data.chat_type ?? "private",
+    };
+    const roomTicket = await createRoomTicket(data.user.id, chat.id, env.TELEGRAM_BOT_TOKEN, { firstName: data.user.first_name, username: data.user.username, avatarUrl: data.user.photo_url });
+    try {
+      await supabaseWorkerCall(env, "load", chat.id, data.user.id, {
+        first_name: data.user.first_name,
+        username: data.user.username,
+        last_name: data.user.last_name,
+        chat_type: chat.type ?? data.chat_type,
+        chat_title: data.chat.title,
+        chat_username: data.chat.username,
+      });
+    } catch (error) {
+      console.error("supabase load failed", error);
+    }
     return json({
       authenticated: true, roomTicket,
       user: { id: data.user.id, first_name: data.user.first_name, last_name: data.user.last_name, username: data.user.username, photo_url: data.user.photo_url },
-      chat: { id: data.chat.id, type: data.chat.type ?? data.chat_type, title: data.chat.title, username: data.chat.username },
+      chat: { id: chat.id, type: chat.type ?? data.chat_type, title: chat.title, username: chat.username },
     });
   } catch (error) { return json({ error: error instanceof Error ? error.message : "Telegram authentication failed" }, 401); }
 }
