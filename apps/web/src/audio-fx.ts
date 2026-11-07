@@ -36,6 +36,22 @@ export class AudioFxEngine {
       if(key==="__bypass"){ effect.bypass=Boolean(value); bypass(); return; }
       const v=Number(value);
       switch(effect.type){
+        case "parametric-eq": {
+          if(key === "bands") {
+            try {
+              const bands = JSON.parse(String(value)) as Array<{frequency:number;gain:number;q:number;type:BiquadFilterType;enabled:boolean}>;
+              bands.forEach((band,index) => {
+                const f = eqFilters[index];
+                if(!f) return;
+                f.type = band.enabled ? band.type : "allpass";
+                f.frequency.value = clamp(Number(band.frequency),20,20000);
+                f.gain.value = band.enabled ? clamp(Number(band.gain),-24,24) : 0;
+                f.Q.value = clamp(Number(band.q),.05,30);
+              });
+            } catch { /* keep current EQ graph */ }
+          }
+          break;
+        }
         case "gain": if(key==="gain") (processor as GainNode).gain.value=db(v); break;
         case "filter": if(key==="cutoff") (processor as BiquadFilterNode).frequency.value=clamp(v,20,20000); if(key==="resonance")(processor as BiquadFilterNode).Q.value=clamp(v,0.0001,30); break;
         case "compressor": {
