@@ -51,3 +51,41 @@ alter table public.beat_projects enable row level security;
 -- The unique Telegram chat ID is the durable isolation boundary.
 -- Creation/resolution will be performed atomically by the trusted API layer.
 -- No browser session can choose another chat's room ID.
+
+
+-- Chat metadata is separate from room identity.
+create table if not exists public.telegram_chats (
+  telegram_chat_id bigint primary key,
+  chat_type text,
+  title text,
+  username text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- Durable project version history. Large binaries remain in R2.
+create table if not exists public.beat_project_versions (
+  room_id uuid not null references public.beat_rooms(id) on delete cascade,
+  version bigint not null,
+  label text,
+  state jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  created_by bigint references public.telegram_users(telegram_user_id),
+  primary key (room_id, version)
+);
+
+create table if not exists public.beat_project_metadata (
+  room_id uuid primary key references public.beat_rooms(id) on delete cascade,
+  metadata jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists beat_project_versions_created_idx
+  on public.beat_project_versions (room_id, created_at desc);
+
+alter table public.telegram_chats enable row level security;
+alter table public.beat_project_versions enable row level security;
+alter table public.beat_project_metadata enable row level security;
+
+-- Trusted Worker APIs own writes; browser access remains denied until
+-- explicit authenticated policies are introduced.
