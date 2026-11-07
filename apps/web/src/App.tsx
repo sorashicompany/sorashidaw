@@ -33,7 +33,7 @@ export default function App() {
 
       <section className="content">
         <div className="hero">
-          <div><small>SHARED BEAT ROOM</small><h1>Make a beat together.</h1><p>Everyone here can edit every part of the project.</p></div>
+          <div><small>SHARED BEAT ROOM</small><h1>Make a beat together.</h1><p>Everyone here can edit every part of the project. No roles or per-track permissions.</p></div>
           <div className="avatars">{people.map(p=><span key={p[0]} title={p[0]}>{p[2]}</span>)}</div>
         </div>
 
@@ -42,7 +42,7 @@ export default function App() {
             {["Drums","Bass","Piano","Synth"].map((t,i)=><div className="track" key={t}><label>{t}</label><div className="clips">{Array.from({length:8},(_,n)=><span className={"clip c"+i} key={n}>{n===0?"Loop":""}</span>)}</div></div>)}
           </div></Panel>
 
-          <Panel title="Room" sub="Everyone is an editor"><div className="members">{people.map(p=><div className="member" key={p[0]}><span>{p[2]}</span><div><b>{p[0]}</b><small>{p[1]}</small></div><em>{p[0]==="You"?"You":"Editing"}</em></div>)}</div></Panel>
+          <Panel title="Room" sub="Everyone can edit everything"><div className="members">{people.map(p=><div className="member" key={p[0]}><span>{p[2]}</span><div><b>{p[0]}</b><small>{p[1]}</small></div><em>{p[0]==="You"?"You":"Editing"}</em></div>)}</div></Panel>
 
           <Panel title="Step Sequencer" sub="Kick · 16 steps" cls="large"><div className="seq">{["KICK","SNARE","HAT"].map((r,row)=><div className="seqrow" key={r}><label>{r}</label><div>{Array.from({length:16},(_,n)=>{const on=row===0?steps.includes(n):row===1?[4,12].includes(n):[2,6,10,14].includes(n); return <button key={n} className={on?"step on":"step"} onClick={()=>row===0&&toggle(n)}/>})}</div></div>)}</div><footer>{steps.length} active kick steps <span>● Shared live</span></footer></Panel>
 
