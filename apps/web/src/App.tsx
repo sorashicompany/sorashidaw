@@ -87,6 +87,18 @@ export default function App() {
     ] },
     { id:"auto-master", targetId:"master", target:"volume", parameter:"volume", label:"Master Volume", points:[
       { id:"mv1", position:0, value:72 }, { id:"mv2", position:32, value:86 }
+    ] },
+    { id:"auto-pan", targetId:"synth", target:"pan", parameter:"pan", label:"Synth Pan", points:[
+      { id:"p1", position:0, value:35 }, { id:"p2", position:24, value:65 }, { id:"p3", position:48, value:50 }
+    ] },
+    { id:"auto-synth", targetId:"synth", target:"synth.parameter", parameter:"filter.cutoff", label:"Synth Cutoff", points:[
+      { id:"s1", position:0, value:25 }, { id:"s2", position:16, value:80 }, { id:"s3", position:40, value:45 }
+    ] },
+    { id:"auto-send", targetId:"send-a", target:"send", parameter:"sendA", label:"Reverb Send", points:[
+      { id:"r1", position:0, value:18 }, { id:"r2", position:32, value:62 }
+    ] },
+    { id:"auto-effect", targetId:"masterfx:fx-auto", target:"master.parameter", parameter:"fx-auto.mix", label:"Master Effect", points:[
+      { id:"e1", position:0, value:30 }, { id:"e2", position:32, value:75 }
     ] }
   ]);
   const [activeAutomationLane, setActiveAutomationLane] = useState("auto-filter");
@@ -132,6 +144,16 @@ export default function App() {
   const realAudioEngineRef = useRef<RealAudioEngine | null>(null);
   const { state: roomState, presence, updatePresence, publishCursor, publish, publishTransport, transport, roomTicket, chatId, serverOffsetMs } = useBeatRoom();
   const appliedOps = useRef(new Set<string>());
+
+  const engineAutomation = (lane: AutomationLane, value: number) => {
+    const engine = realAudioEngineRef.current;
+    if (!engine) return;
+    if (lane.target === "effect.parameter" || lane.target === "master.parameter") {
+      engine.setAutomationValue(lane.target, lane.parameter, value);
+      return;
+    }
+    engine.setAutomationValue(lane.target, lane.parameter, value);
+  };
 
   const automationValueAt = (lane: AutomationLane, position: number) => {
     const points = [...lane.points].sort((a,b) => a.position - b.position);
@@ -265,6 +287,20 @@ export default function App() {
     if (!engine) return;
     engine.setState(bpm, drumChannels, pianoNotes);
   }, [bpm, drumChannels, pianoNotes]);
+  
+  useEffect(() => {
+    if (!transport?.playing) return;
+    const tick = () => {
+      const position = localTransportPosition();
+      for (const lane of automation) {
+        const raw = automationValueAt(lane, position);
+        engineAutomation(lane, automationParamValue(lane, raw));
+      }
+    };
+    const id = window.setInterval(tick, 40);
+    tick();
+    return () => window.clearInterval(id);
+  }, [transport?.playing, transport?.revision, automation, bpm, serverOffsetMs]);
 
   useEffect(() => {
     const engine = realAudioEngineRef.current;
