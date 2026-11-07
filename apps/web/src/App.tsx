@@ -5,6 +5,7 @@ import { WAVETABLES, SYNTH_PRESETS, type SynthState } from "../../../packages/sh
 import { BUILT_IN_EFFECTS, defaultEffectParams, type BuiltInEffectType, type EffectInstance, type ParametricEqBand, DEFAULT_EQ_BANDS } from "../../../packages/shared/src/effects";
 import { AudioFxEngine } from "./audio-fx";
 import { RealAudioEngine } from "./audio-engine";
+import { defaultExportTargets, exportMidi, exportMp3IfSupported, renderWav, type ExportProject, type ExportTarget } from "./export";
 type MidiCc = { controller: number; value: number; channel: number };
 type MixerChannel = { id:string; name:string; type:"channel"|"bus"|"group"|"send"|"master"; volume:number; pan:number; mute:boolean; solo:boolean; peak:number; route:string; inserts:string[]; sends:Record<string,number>; busId?:string; };
 
@@ -279,6 +280,9 @@ export default function App() {
   const [redoDepth, setRedoDepth] = useState(0);
   const [projectHistory, setProjectHistory] = useState<Array<{version:number;label:string;createdAt:string}>>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportTargetId, setExportTargetId] = useState("master");
+  const [exportBusy, setExportBusy] = useState(false);
 
   const applyProjectSnapshot = (snapshot: any) => {
     if (typeof snapshot.bpm === "number") setBpm(snapshot.bpm);
@@ -1063,12 +1067,48 @@ export default function App() {
   }
 
   const selected = tracks.flatMap(track => track.clips).find(clip => clip.id === selectedClip);
+  const exportProject: ExportProject = { bpm, durationBeats: Math.max(64, ...tracks.flatMap(track => track.clips.map(clip => clip.start + clip.length)), loopEndBeats), drumChannels, pianoNotes, tracks, mixer };
+  const exportTargets = defaultExportTargets(exportProject);
+
+  function downloadBlob(blob: Blob, filename: string) {
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url; anchor.download = filename; anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  async function runExport(format: "wav" | "mp3" | "midi", targetId = exportTargetId) {
+    const target = exportTargets.find(item => item.id === targetId);
+    if (!target || exportBusy) return;
+    setExportBusy(true);
+    try {
+      const safeName = target.label.replace(/[^a-z0-9_-]+/gi, "-").replace(/^-|-$/g, "").toLowerCase() || "export";
+      if (format === "midi") downloadBlob(exportMidi(exportProject), safeName + ".mid");
+      else if (format === "wav") downloadBlob(await renderWav(exportProject, target), safeName + ".wav");
+      else {
+        const mp3 = await exportMp3IfSupported(exportProject, target);
+        if (mp3) downloadBlob(mp3, safeName + ".mp3");
+        else downloadBlob(await renderWav(exportProject, target), safeName + ".wav");
+      }
+    } finally { setExportBusy(false); }
+  }
+
+  async function exportAllStems() {
+    setExportBusy(true);
+    try {
+      for (const target of exportTargets.filter(item => item.id !== "master")) {
+        const safeName = target.label.replace(/[^a-z0-9_-]+/gi, "-").replace(/^-|-$/g, "").toLowerCase() || target.id;
+        downloadBlob(await renderWav(exportProject, target), safeName + "-stem.wav");
+      }
+    } finally { setExportBusy(false); }
+  }
+
 
   return (
     <main className="daw">
       <header className="topbar">
         <div className="brand"><div className="brand-mark">S</div><div><strong>SORASHI DAW</strong><span>shared beat room</span></div></div>
-        <div className="project"><button className="project-name">Untitled Beat <span>⌄</span></button><span className="save-state"><i /> Saved</span></div>
+        <div className="project"><button className="project-name">Untitled Beat <span>⌄</span></button><span className="save-state"><i /> Saved</span><button className="history-button" onClick={() => setHistoryOpen(v => !v)}>HISTORY</button><button className="export-button" onClick={() => setExportOpen(v => !v)}>EXPORT</button></div>
         <div className="transport">
           <button className="transport-button" onClick={() => void togglePlayback()}>{playing ? "PAUSE" : "PLAY"}</button>\n          <button className="transport-button" onClick={() => void publishStop()}>STOP</button>
           <button className="transport-icon" onClick={() => void publishStop()}>■</button>
@@ -1078,6 +1118,20 @@ export default function App() {
           <span className={roomState === "live" ? "room-status live" : "room-status"}><i />{roomState === "live" ? "LIVE" : roomState.toUpperCase()}</span>
         </div>
       </header>
+
+          {exportOpen && <div className="history-popover export-popover">
+            <div className="history-head"><strong>EXPORT</strong><button onClick={() => setExportOpen(false)}>×</button></div>
+            <div className="export-targets">
+              {exportTargets.map(target => <button key={target.id} className={exportTargetId === target.id ? "active" : ""} onClick={() => setExportTargetId(target.id)}>{target.label}<small>{target.kind}</small></button>)}
+            </div>
+            <div className="export-actions">
+              <button disabled={exportBusy} onClick={() => void runExport("wav")}>WAV</button>
+              <button disabled={exportBusy} onClick={() => void runExport("mp3")}>MP3</button>
+              <button disabled={exportBusy} onClick={() => void runExport("midi")}>MIDI</button>
+              <button disabled={exportBusy} onClick={() => void exportAllStems()}>ALL STEMS · WAV</button>
+            </div>
+            <small className="export-note">{exportBusy ? "Rendering…" : "Master, channels and groups are rendered locally. MP3 uses the browser codec when available; otherwise WAV is produced."}</small>
+          </div>}
 
           {historyOpen && <div className="history-popover">
             <div className="history-head"><strong>VERSION HISTORY</strong><button onClick={() => setHistoryOpen(false)}>×</button></div>
