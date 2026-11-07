@@ -1,5 +1,5 @@
 {
-  "name": "sorashidaw",
+  "name": "nexoradaw",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "typecheck": "pnpm --filter @sorashidaw/shared typecheck && pnpm --filter @sorashidaw/web typecheck && pnpm --filter @sorashidaw/worker typecheck"
+    "typecheck": "pnpm --filter @nexoradaw/shared typecheck && pnpm --filter @nexoradaw/web typecheck && pnpm --filter @nexoradaw/worker typecheck"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.0",
