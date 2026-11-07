@@ -1,31 +1,34 @@
+export type CollaborationOperationType =
+  | "ADD_TRACK"
+  | "UPDATE_TRACK"
+  | "DELETE_TRACK"
+  | "ADD_NOTE"
+  | "MOVE_NOTE"
+  | "DELETE_NOTE"
+  | "CHANGE_VELOCITY"
+  | "ADD_SAMPLE"
+  | "DELETE_SAMPLE"
+  | "SET_VOLUME"
+  | "SET_PAN"
+  | "SET_FILTER"
+  | "ADD_EFFECT"
+  | "REMOVE_EFFECT"
+  | "MOVE_CLIP"
+  | "DELETE_CLIP"
+  | "CHANGE_BPM"
+  | "CHANGE_PATTERN"
+  | "SET_SYNTH_PARAMETER"
+  | "SET_AUTOMATION";
+
 export type CollaborationOperation =
   | {
-      kind: "entity.patch";
+      type: CollaborationOperationType;
       opId: string;
       roomId: string;
       actorId: number;
-      entity: "track" | "note" | "synth" | "mixer" | "project";
-      entityId: string;
-      patch: Record<string, unknown>;
-      clientTime: number;
-    }
-  | {
-      kind: "entity.create";
-      opId: string;
-      roomId: string;
-      actorId: number;
-      entity: "track" | "note";
-      entityId: string;
-      value: Record<string, unknown>;
-      clientTime: number;
-    }
-  | {
-      kind: "entity.delete";
-      opId: string;
-      roomId: string;
-      actorId: number;
-      entity: "track" | "note";
-      entityId: string;
+      targetId: string;
+      trackId?: string;
+      payload: Record<string, unknown>;
       clientTime: number;
     };
 
@@ -37,7 +40,7 @@ export type CollaborationEnvelope =
     }
   | {
       type: "sync.presence";
-      sequence: number;
+      sequence: 0;
       actorId: number;
       status: "joined" | "left";
     }
@@ -45,6 +48,11 @@ export type CollaborationEnvelope =
       type: "sync.ack";
       opId: string;
       sequence: number;
+    }
+  | {
+      type: "sync.snapshot";
+      sequence: number;
+      operations: CollaborationOperation[];
     }
   | {
       type: "sync.error";
@@ -56,12 +64,13 @@ export function isCollaborationOperation(value: unknown): value is Collaboration
   if (!value || typeof value !== "object") return false;
   const op = value as Partial<CollaborationOperation>;
   return (
-    (op.kind === "entity.patch" || op.kind === "entity.create" || op.kind === "entity.delete") &&
+    typeof op.type === "string" &&
     typeof op.opId === "string" &&
     typeof op.roomId === "string" &&
     typeof op.actorId === "number" &&
-    typeof op.entity === "string" &&
-    typeof op.entityId === "string" &&
+    typeof op.targetId === "string" &&
+    typeof op.payload === "object" &&
+    op.payload !== null &&
     typeof op.clientTime === "number"
   );
 }
