@@ -545,6 +545,12 @@ export default function App() {
   const browserItems: BrowserItem[] = [
     ...drumAssets.map(asset => ({ id:"sample:"+asset.id, name:asset.name, category:"Samples", folder:asset.folder || asset.category, kind:"sample" as const, previewUrl:asset.previewUrl, sourceAssetId:asset.id })),
     ...DRUM_SAMPLES.map(name => ({ id:"builtin:"+name, name, category:"Samples", folder:"Built-in / Drums", kind:"sample" as const })),
+    { id:"kit:factory", name:"Sorashi Factory Kit", category:"Drum Kits", folder:"Factory", kind:"kit" as const },
+    { id:"kit:room", name:"Room Drum Kit", category:"Drum Kits", folder:"Current Room", kind:"kit" as const },
+    { id:"preset:factory", name:"Factory Synth Presets", category:"Presets", folder:"Factory", kind:"preset" as const },
+    { id:"wt:factory", name:"Factory Wavetables", category:"Wavetables", folder:"Factory", kind:"wavetable" as const },
+    { id:"effect:factory", name:"Built-in Effect Library", category:"Effects", folder:"Built-in Effects", kind:"effect" as const },
+    { id:"project:room", name:"Current Room Project", category:"Projects", folder:"Current Room", kind:"project" as const },
     ...Object.values(SYNTH_PRESETS).map((preset:any) => ({ id:"preset:"+preset.id, name:preset.name, category:"Presets", folder:"Synth Presets", kind:"preset" as const })),
     ...WAVETABLES.map((table:any) => ({ id:"wt:"+table.id, name:table.name, category:"Wavetables", folder:"Wavetables", kind:"wavetable" as const })),
     ...BUILT_IN_EFFECTS.map(effect => ({ id:"fx:"+effect.type, name:effect.name, category:"Effects", folder:"Built-in Effects", kind:"effect" as const })),
