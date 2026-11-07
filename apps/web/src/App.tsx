@@ -105,6 +105,22 @@ export default function App() {
 
   useEffect(() => {
     for (const event of events) {
+      if (event.type !== "sync.operation" || event.operation.type !== "SET_SYNTH_PARAMETER") continue;
+      const { path, value } = event.operation.payload;
+      if (typeof path !== "string") continue;
+      setSynth(current => {
+        const next = structuredClone(current) as SynthState;
+        const parts = path.split(".");
+        let target: any = next;
+        for (let i=0;i<parts.length-1;i++) target = target[parts[i]];
+        target[parts[parts.length-1]] = value;
+        return next;
+      });
+    }
+  }, [events]);
+
+  useEffect(() => {
+    for (const event of events) {
       if (event.type !== "sync.operation" || event.operation.type !== "ADD_DRUM_SAMPLE") continue;
       const asset = event.operation.payload.asset as DrumAsset | undefined;
       if (asset && !drumAssets.some(item => item.id === asset.id)) setDrumAssets(current => [...current, asset]);
