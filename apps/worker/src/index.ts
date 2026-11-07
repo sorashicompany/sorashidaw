@@ -2,8 +2,9 @@ import { verifyTelegramInitData } from "./telegram";
 import { BeatRoom } from "./room";
 import { createRoomTicket, verifyRoomTicket } from "./room-ticket";
 import { sendBeatSaved, sendExportedFile, sendInvite, sendOpenBeatStudio, getGroupInviteLink } from "./telegram-bot";
+import { supabaseWorkerCall } from "./supabase";
 
-export interface Env { TELEGRAM_BOT_TOKEN: string; BEAT_ROOM: DurableObjectNamespace<BeatRoom>; DRUM_KITS: R2Bucket; MINI_APP_URL: string; BOT_WEBHOOK_SECRET?: string; BOT_USERNAME?: string; }
+export interface Env { TELEGRAM_BOT_TOKEN: string; BEAT_ROOM: DurableObjectNamespace<BeatRoom>; DRUM_KITS: R2Bucket; MINI_APP_URL: string; SUPABASE_URL: string; SUPABASE_PUBLISHABLE_KEY: string; SUPABASE_WORKER_SIGNING_SECRET: string; BOT_WEBHOOK_SECRET?: string; BOT_USERNAME?: string; }
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -33,6 +34,7 @@ async function authenticateTelegram(request: Request, env: Env): Promise<Respons
     if (!data.user) return json({ error: "Telegram user is missing" }, 401);
     if (!data.chat) return json({ error: "Telegram chat context is missing" }, 401);
     const roomTicket = await createRoomTicket(data.user.id, data.chat.id, env.TELEGRAM_BOT_TOKEN, { firstName: data.user.first_name, username: data.user.username, avatarUrl: data.user.photo_url });
+    await supabaseWorkerCall(env, "load", data.chat.id, data.user.id, { first_name: data.user.first_name, username: data.user.username, last_name: data.user.last_name, chat_type: data.chat.type ?? data.chat_type, chat_title: data.chat.title, chat_username: data.chat.username });
     return json({
       authenticated: true, roomTicket,
       user: { id: data.user.id, first_name: data.user.first_name, last_name: data.user.last_name, username: data.user.username, photo_url: data.user.photo_url },
@@ -73,11 +75,15 @@ async function roomState(request: Request, env: Env): Promise<Response> {
     const verified = await verifyRoomTicket(ticket, chatId, env.TELEGRAM_BOT_TOKEN);
     const stub = env.BEAT_ROOM.getByName(String(verified.chatId));
     if (request.method === "GET") {
+      const remote = await supabaseWorkerCall<{ state: unknown; version: number; updatedAt: string | null }>(env, "load", verified.chatId, verified.userId, {});
+      if (remote.state !== null) return json(remote);
       return json(await stub.getProjectState());
     }
     const body = await request.json() as { state?: unknown; version?: number };
     if (!body.state || typeof body.state !== "object") return json({ error: "Project state is required" }, 400);
     const result = await stub.saveProjectState(body.state, body.version);
+    await supabaseWorkerCall(env, "save", verified.chatId, verified.userId, { state: body.state, version: result.version });
+    if (result.historyVersion !== null) await supabaseWorkerCall(env, "save_version", verified.chatId, verified.userId, { state: body.state, version: result.historyVersion, label: "Beat v" + result.historyVersion });
     return json(result);
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : "Project state request failed" }, 401);
@@ -87,7 +93,9 @@ async function roomState(request: Request, env: Env): Promise<Response> {
 async function roomHistory(request: Request, env: Env): Promise<Response> {
   const auth = await roomStubFromRequest(request, env);
   if (auth instanceof Response) return auth;
-  return json(await auth.stub.getProjectHistory());
+  const verified = await verifyRoomTicket(new URL(request.url).searchParams.get("ticket")!, auth.chatId, env.TELEGRAM_BOT_TOKEN);
+  const remote = await supabaseWorkerCall<{ history: Array<{ version: number; label: string; createdAt: string }> }>(env, "history", verified.chatId, verified.userId, {});
+  return json(remote.history.length ? remote.history : await auth.stub.getProjectHistory());
 }
 
 async function restoreRoomVersion(request: Request, env: Env): Promise<Response> {
@@ -96,7 +104,14 @@ async function restoreRoomVersion(request: Request, env: Env): Promise<Response>
   if (!Number.isSafeInteger(version) || version < 1) return json({ error: "Invalid version" }, 400);
   const auth = await roomStubFromRequest(request, env);
   if (auth instanceof Response) return auth;
-  try { return json(await auth.stub.restoreProjectVersion(version)); }
+  try {
+    const verified = await verifyRoomTicket(new URL(request.url).searchParams.get("ticket")!, auth.chatId, env.TELEGRAM_BOT_TOKEN);
+    const remote = await supabaseWorkerCall<{ state: unknown }>(env, "version", verified.chatId, verified.userId, { version });
+    const restored = await auth.stub.restoreProjectState(remote.state, version);
+    await supabaseWorkerCall(env, "save", verified.chatId, verified.userId, { state: remote.state, version: restored.version });
+    await supabaseWorkerCall(env, "save_version", verified.chatId, verified.userId, { state: remote.state, version: restored.version, label: "Beat v" + restored.version });
+    return json(restored);
+  }
   catch (error) { return json({ error: error instanceof Error ? error.message : "Restore failed" }, 404); }
 }
 
