@@ -58,9 +58,32 @@ export class RealAudioEngine {
     this.masterFx?.setEffectBypass("master-channel", effectId, bypass);
   }
 
-  async setPlaying(playing: boolean, bpm: number): Promise<void> {
+  async setPlaying(playing: boolean, bpm: number, positionBeats = 0): Promise<void> {
     await this.resume();
-    this.node?.port.postMessage({ type: "transport", playing, bpm, resume: playing });
+    this.node?.port.postMessage({ type: "transport", playing, bpm, positionBeats, startAtFrame: 0 });
+  }
+
+  async scheduleTransport(
+    playing: boolean,
+    bpm: number,
+    startAtAudioTime: number,
+    positionBeats: number,
+    loopEnabled: boolean,
+    loopStartBeats: number,
+    loopEndBeats: number,
+  ): Promise<void> {
+    await this.resume();
+    const delaySeconds = Math.max(0, startAtAudioTime - this.context.currentTime);
+    this.node?.port.postMessage({
+      type: "transport",
+      playing,
+      bpm,
+      positionBeats,
+      loopEnabled,
+      loopStartBeats,
+      loopEndBeats,
+      startDelaySeconds: delaySeconds,
+    });
   }
 
   stop(): void {
