@@ -1,0 +1,15 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "sorashidaw-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-07",
+  "observability": { "enabled": true },
+  "durable_objects": {
+    "bindings": [
+      { "name": "BEAT_ROOM", "class_name": "BeatRoom" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["BeatRoom"] }
+  ]
+}
