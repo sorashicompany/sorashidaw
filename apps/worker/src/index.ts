@@ -8,7 +8,7 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (request.method === "POST" && url.pathname === "/api/auth/telegram") return authenticateTelegram(request, env);
-    if (request.method === "GET" && url.pathname === "/api/room/socket") return connectRoomSocket(request, env);\n    if (url.pathname === "/api/room/assets" && (request.method === "GET" || request.method === "POST")) return roomAssets(request, env);
+    if (request.method === "GET" && url.pathname === "/api/room/socket") return connectRoomSocket(request, env);\n    if (url.pathname === "/api/room/assets" && (request.method === "GET" || request.method === "POST")) return roomAssets(request, env);\n    if (url.pathname.startsWith("/api/room/assets/") && request.method === "GET") return roomAsset(request, env);
     if (request.method === "GET" && url.pathname === "/health") return json({ ok: true, service: "sorashidaw-api" });
     return json({ error: "Not found" }, 404);
   },
@@ -90,5 +90,26 @@ async function roomAssets(request: Request, env: Env): Promise<Response> {
     return json({ asset: { id, name, category, folder, mimeType: file.type || "audio/wav", size: file.size } }, 201);
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : "Drum kit request failed" }, 401);
+  }
+}
+
+
+async function roomAsset(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const chatId = Number(url.searchParams.get("chatId"));
+  const ticket = url.searchParams.get("ticket");
+  const id = decodeURIComponent(url.pathname.slice("/api/room/assets/".length));
+  if (!Number.isSafeInteger(chatId) || !ticket || !id) return new Response("Unauthorized", { status: 401 });
+  try {
+    const verified = await verifyRoomTicket(ticket, chatId, env.TELEGRAM_BOT_TOKEN);
+    const object = await env.DRUM_KITS.get(String(verified.chatId) + "/" + id);
+    if (!object) return new Response("Not found", { status: 404 });
+    const headers = new Headers();
+    object.writeHttpMetadata(headers);
+    headers.set("etag", object.httpEtag);
+    headers.set("cache-control", "private, max-age=300");
+    return new Response(object.body, { headers });
+  } catch {
+    return new Response("Unauthorized", { status: 401 });
   }
 }
