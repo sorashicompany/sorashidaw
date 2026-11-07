@@ -270,7 +270,7 @@ export default function App() {
   const eqCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const masterTestOscRef = useRef<OscillatorNode | null>(null);
   const realAudioEngineRef = useRef<RealAudioEngine | null>(null);
-  const { state: roomState, presence, updatePresence, publishCursor, publish, publishTransport, transport, roomTicket, chatId, serverOffsetMs, projectState: savedProjectState, projectLoaded, saveProjectState, getProjectHistory, restoreProjectVersion } = useBeatRoom();
+  const { state: roomState, presence, updatePresence, publishCursor, publish, publishTransport, transport, roomTicket, chatId, userId, serverOffsetMs, projectState: savedProjectState, projectLoaded, saveProjectState, getProjectHistory, restoreProjectVersion } = useBeatRoom();
   const appliedOps = useRef(new Set<string>());
   type LocalHistoryEntry = { opId: string; type: string; changes: SnapshotChange[]; before: any; after: any };
   const undoStackRef = useRef<LocalHistoryEntry[]>([]);
@@ -683,7 +683,7 @@ export default function App() {
   }, [playing, bpm]);
 
   const online = presence.filter(user => user.status === "online");
-  const currentUser = presence.find(user => user.status === "online");
+  const currentUser = presence.find(user => user.actorId === userId) ?? null;
 
   function emit(type: Parameters<typeof publish>[0], targetId: string, payload: Record<string, unknown>, trackId?: string) {
     const projectOps = new Set(["MOVE_CLIP","PASTE_CLIP","DUPLICATE_CLIP","DELETE_CLIP","SPLIT_CLIP","ADD_TRACK","ADD_MARKER","CHANGE_PATTERN","UPDATE_DRUM_CHANNEL","ADD_PATTERN_CLIP","SET_SYNTH_PARAMETER","ADD_NOTE","MOVE_NOTE","CHANGE_VELOCITY","DELETE_NOTE","CHANGE_BPM","SET_MIXER_PARAMETER","ADD_MIXER_CHANNEL","SET_EFFECT_PARAMETER","ADD_EFFECT","REMOVE_EFFECT","SET_AUTOMATION","DELETE_AUTOMATION"]);
