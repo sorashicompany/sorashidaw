@@ -270,6 +270,81 @@ export default function App() {
   const realAudioEngineRef = useRef<RealAudioEngine | null>(null);
   const { state: roomState, presence, updatePresence, publishCursor, publish, publishTransport, transport, roomTicket, chatId, serverOffsetMs, projectState: savedProjectState, projectLoaded, saveProjectState, getProjectHistory, restoreProjectVersion } = useBeatRoom();
   const appliedOps = useRef(new Set<string>());
+  type LocalHistoryEntry = { opId: string; type: string; changes: SnapshotChange[]; before: any; after: any };
+  const undoStackRef = useRef<LocalHistoryEntry[]>([]);
+  const redoStackRef = useRef<LocalHistoryEntry[]>([]);
+  const committedSnapshotRef = useRef<any>(null);
+  const pendingHistoryRef = useRef<{ opId: string; type: string; before: any } | null>(null);
+  const [undoDepth, setUndoDepth] = useState(0);
+  const [redoDepth, setRedoDepth] = useState(0);
+  const [projectHistory, setProjectHistory] = useState<Array<{version:number;label:string;createdAt:string}>>([]);
+
+  const applyProjectSnapshot = (snapshot: any) => {
+    if (typeof snapshot.bpm === "number") setBpm(snapshot.bpm);
+    if (Array.isArray(snapshot.tracks)) setTracks(snapshot.tracks);
+    if (Array.isArray(snapshot.markers)) setMarkers(snapshot.markers);
+    if (Array.isArray(snapshot.automation)) setAutomation(snapshot.automation);
+    if (Array.isArray(snapshot.pianoNotes)) setPianoNotes(snapshot.pianoNotes);
+    if (Array.isArray(snapshot.drumChannels)) setDrumChannels(snapshot.drumChannels);
+    if (typeof snapshot.patternLength === "number") setPatternLength(snapshot.patternLength);
+    if (typeof snapshot.activePattern === "string") setActivePattern(snapshot.activePattern);
+    if (Array.isArray(snapshot.patternNames)) setPatternNames(snapshot.patternNames);
+    if (snapshot.synth) setSynth(snapshot.synth);
+    if (Array.isArray(snapshot.effects)) setEffects(snapshot.effects);
+    if (Array.isArray(snapshot.masterEffects)) setMasterEffects(snapshot.masterEffects);
+    if (Array.isArray(snapshot.mixer)) setMixer(snapshot.mixer);
+    if (snapshot.loop) {
+      setLoopEnabled(Boolean(snapshot.loop.enabled));
+      setLoopStartBeats(Number(snapshot.loop.startBeats ?? 0));
+      setLoopEndBeats(Number(snapshot.loop.endBeats ?? 64));
+    }
+  };
+
+  useEffect(() => {
+    const current = buildProjectSnapshot();
+    const pending = pendingHistoryRef.current;
+    if (pending) {
+      const after = cloneSnapshot(current);
+      const changes = diffSnapshots(pending.before, after);
+      if (changes.length) {
+        undoStackRef.current = [...undoStackRef.current.slice(-49), { opId: pending.opId, type: pending.type, before: pending.before, after, changes }];
+        redoStackRef.current = [];
+        setUndoDepth(undoStackRef.current.length);
+        setRedoDepth(0);
+      }
+      pendingHistoryRef.current = null;
+    }
+    committedSnapshotRef.current = current;
+  });
+
+  useEffect(() => {
+    if (!projectLoaded || !chatId) return;
+    void getProjectHistory().then(setProjectHistory);
+  }, [projectLoaded, chatId, getProjectHistory]);
+
+  const performCollaborativeUndo = () => {
+    const entry = undoStackRef.current.pop();
+    if (!entry) return;
+    const current = buildProjectSnapshot();
+    const next = applySnapshotChanges(current, entry.changes, "undo");
+    applyProjectSnapshot(next);
+    publish("UNDO_PATCH", entry.opId, { changes: entry.changes, direction: "undo", originalActorId: currentUser?.actorId ?? 0 });
+    redoStackRef.current.push(entry);
+    setUndoDepth(undoStackRef.current.length);
+    setRedoDepth(redoStackRef.current.length);
+  };
+
+  const performCollaborativeRedo = () => {
+    const entry = redoStackRef.current.pop();
+    if (!entry) return;
+    const current = buildProjectSnapshot();
+    const next = applySnapshotChanges(current, entry.changes, "redo");
+    applyProjectSnapshot(next);
+    publish("REDO_PATCH", entry.opId, { changes: entry.changes, direction: "redo", originalActorId: currentUser?.actorId ?? 0 });
+    undoStackRef.current.push(entry);
+    setUndoDepth(undoStackRef.current.length);
+    setRedoDepth(redoStackRef.current.length);
+  };
 
   const engineAutomation = (lane: AutomationLane, value: number) => {
     const engine = realAudioEngineRef.current;
@@ -604,7 +679,13 @@ export default function App() {
   const currentUser = presence.find(user => user.status === "online");
 
   function emit(type: Parameters<typeof publish>[0], targetId: string, payload: Record<string, unknown>, trackId?: string) {
-    publish(type, targetId, payload, trackId);
+    const projectOps = new Set(["MOVE_CLIP","PASTE_CLIP","DUPLICATE_CLIP","DELETE_CLIP","SPLIT_CLIP","ADD_TRACK","ADD_MARKER","CHANGE_PATTERN","UPDATE_DRUM_CHANNEL","ADD_PATTERN_CLIP","SET_SYNTH_PARAMETER","ADD_NOTE","MOVE_NOTE","CHANGE_VELOCITY","DELETE_NOTE","CHANGE_BPM","SET_MIXER_PARAMETER","ADD_MIXER_CHANNEL","SET_EFFECT_PARAMETER","ADD_EFFECT","REMOVE_EFFECT","SET_AUTOMATION","DELETE_AUTOMATION"]);
+    const opId = crypto.randomUUID();
+    if (projectOps.has(type)) {
+      const before = cloneSnapshot(committedSnapshotRef.current ?? buildProjectSnapshot());
+      pendingHistoryRef.current = { opId, type, before };
+    }
+    publish(type, targetId, { ...payload, opId }, trackId);
   }
 
   function updateClip(id: string, patch: Partial<Clip>) {
