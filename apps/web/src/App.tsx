@@ -129,6 +129,26 @@ export default function App() {
   useEffect(() => {
     for (const event of events) {
       if (event.type !== "sync.operation") continue;
+      const op = event.operation;
+      if (op.type === "SET_EFFECT_PARAMETER") {
+        const key = String(op.payload.key);
+        setEffects(current => current.map(effect => {
+          if (effect.id !== op.targetId) return effect;
+          if (key.startsWith("params.")) return { ...effect, params: { ...effect.params, [key.slice(7)]: op.payload.value } };
+          return { ...effect, [key]: op.payload.value } as EffectInstance;
+        }));
+      } else if (op.type === "ADD_EFFECT" && op.payload.effect) {
+        const effect = op.payload.effect as EffectInstance;
+        setEffects(current => current.some(item => item.id === effect.id) ? current : [...current, effect]);
+      } else if (op.type === "REMOVE_EFFECT") {
+        setEffects(current => current.filter(effect => effect.id !== op.targetId));
+      }
+    }
+  }, [events]);
+
+  useEffect(() => {
+    for (const event of events) {
+      if (event.type !== "sync.operation") continue;
       const op=event.operation;
       if (op.type==="SET_MIXER_PARAMETER") setMixer(current=>current.map(ch=>ch.id===op.targetId ? {...ch,[String(op.payload.key)]:op.payload.value} : ch));
       if (op.type==="ADD_MIXER_CHANNEL" && op.payload.channel) setMixer(current=>current.some(ch=>ch.id===op.targetId)?current:[...current.filter(ch=>ch.id!=="master"),op.payload.channel as MixerChannel,current.find(ch=>ch.id==="master")!]);
