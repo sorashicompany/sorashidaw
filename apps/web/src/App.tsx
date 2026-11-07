@@ -235,7 +235,7 @@ export default function App() {
   const [browserFolder, setBrowserFolder] = useState("All");
   const [activeAutomationLane, setActiveAutomationLane] = useState("auto-filter");
   useEffect(() => {
-    if (projectHydratedRef.current || !savedProjectState || typeof savedProjectState !== "object") return;
+    if (projectHydratedRef.current || !projectLoaded) return;\n    if (!savedProjectState || typeof savedProjectState !== "object") { projectHydratedRef.current = true; return; }
     const saved = savedProjectState as any;
     if (typeof saved.bpm === "number") setBpm(saved.bpm);
     if (Array.isArray(saved.tracks)) setTracks(saved.tracks);
