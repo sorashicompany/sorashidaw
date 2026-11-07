@@ -267,3 +267,49 @@ button { color: inherit; }
 .export-actions button:hover{background:#262b34}
 .export-actions button:disabled{opacity:.45;cursor:wait}
 .export-note{display:block;color:#68717f;padding:0 10px 11px;line-height:1.4}
+
+/* Professional DAW visual layer */
+:root{
+  --bg:#080a0e;--panel:#0f1319;--panel-2:#0b0f14;--line:#242b35;--line-soft:#171d25;
+  --text:#e5e9ef;--muted:#77818f;--muted-2:#56606d;--accent:#8f78c7;--accent-soft:#211b31;
+  --green:#69c98a;--cyan:#6fb6c2;--amber:#c7a96d;
+}
+body{background:radial-gradient(circle at 50% -20%,#151321 0,#080a0e 42%,#07090c 100%);}
+button,input,select{outline:none}
+button:focus-visible,input:focus-visible,select:focus-visible{box-shadow:0 0 0 1px #8f78c7aa}
+.daw{letter-spacing:.005em}
+.topbar{background:rgba(10,13,18,.96);backdrop-filter:blur(14px);box-shadow:0 1px 0 rgba(255,255,255,.015)}
+.brand-mark{background:linear-gradient(145deg,#221a35,#12151d);box-shadow:inset 0 0 18px #8f78c71c,0 0 18px #8f78c70b}
+.tool-tab{transition:color .14s ease,background .14s ease}
+.tool-tab.active{background:linear-gradient(180deg,#17131f,#11131a);text-shadow:0 0 12px #b59cff35}
+.panel,.left-dock,.right-dock{box-shadow:inset 0 1px 0 rgba(255,255,255,.012)}
+.panel{transition:border-color .16s ease,box-shadow .16s ease}
+.panel:hover{border-color:#303845;box-shadow:0 8px 28px rgba(0,0,0,.08)}
+.arr-clip{transition:transform .12s ease,box-shadow .12s ease,background .12s ease}
+.arr-clip:hover{transform:translateY(-1px);box-shadow:0 4px 14px rgba(0,0,0,.28)}
+.arr-clip.audio:before,.arr-clip.midi:before,.arr-clip.pattern:before,.arr-clip.loop:before{content:"";position:absolute;left:7px;right:7px;top:7px;height:12px;opacity:.55;background:repeating-linear-gradient(90deg,transparent 0 3px,currentColor 3px 4px,transparent 4px 7px);clip-path:polygon(0 55%,4% 38%,8% 62%,12% 25%,16% 58%,20% 34%,24% 70%,28% 20%,32% 56%,36% 42%,40% 68%,44% 31%,48% 58%,52% 25%,56% 63%,60% 39%,64% 57%,68% 28%,72% 67%,76% 40%,80% 54%,84% 22%,88% 62%,92% 35%,96% 57%,100% 31%,100% 100%,0 100%);pointer-events:none}
+.arr-clip span,.arr-clip small{position:relative;z-index:1}
+.waveform{position:relative;height:58px;padding:0 8px;background:linear-gradient(180deg,#090c11,#0b0e13);border-color:#252d37;box-shadow:inset 0 0 30px #8f78c70a}
+.waveform svg{width:100%;height:100%;display:block}
+.waveform path{fill:none;stroke:#a58dd4;stroke-width:1.5;filter:drop-shadow(0 0 4px #8f78c744)}
+.waveform .waveform-secondary{stroke:#5f768c;stroke-width:.8;opacity:.55;filter:none}
+.waveform span{position:absolute;right:8px;bottom:5px;color:#4f5966;font-size:5px;letter-spacing:.1em}
+.step{transition:background .08s ease,border-color .08s ease,box-shadow .08s ease,transform .08s ease}
+.step:hover{transform:translateY(-1px);border-color:#4b5361}
+.step.on{box-shadow:0 0 9px #8f78c728}
+.midi-note{box-shadow:inset 0 0 8px rgba(255,255,255,.05),0 2px 8px rgba(0,0,0,.15);transition:filter .1s ease,transform .1s ease}
+.midi-note:hover{filter:brightness(1.16);transform:translateY(-1px)}
+.mixer-strip{transition:border-color .12s ease,background .12s ease}
+.mixer-strip:hover{background:#0d1117;border-color:#2b333e}
+.meter{background:linear-gradient(180deg,#0b0e12,#090c10);overflow:hidden}
+.meter i{background:linear-gradient(180deg,#d0a56d 0,#8a6ab0 35%,#5e7869 100%);box-shadow:0 0 8px #8f78c72b;transition:height .12s linear}
+.master-meter i,.channel-meter i{background:linear-gradient(180deg,#cfa66f 0,#8e76bc 38%,#5d7868 100%)}
+.eq-spectrum{background:radial-gradient(ellipse at 50% 100%,#171329 0,#090c11 56%,#080a0e 100%)}
+.compressor-meter .gr-meter i{background:linear-gradient(180deg,#a77ac5,#596b7b)}
+.remote-cursor{box-shadow:0 6px 22px rgba(0,0,0,.25);animation:cursor-in .16s ease}
+@keyframes cursor-in{from{opacity:0;transform:translate(8px,12px)}to{opacity:1;transform:translate(8px,8px)}}
+.save-state i,.online-dot{animation:live-pulse 2.4s ease-in-out infinite}
+@keyframes live-pulse{0%,100%{opacity:.65;box-shadow:0 0 4px #69c98a}50%{opacity:1;box-shadow:0 0 10px #69c98a}}
+@media (prefers-reduced-motion:reduce){
+  *{animation-duration:.01ms!important;transition-duration:.01ms!important}
+}
