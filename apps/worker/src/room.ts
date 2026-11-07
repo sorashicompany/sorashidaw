@@ -50,8 +50,8 @@ export class BeatRoom extends DurableObject<RoomEnv> {
     const version = Math.max(current + 1, Number(clientVersion ?? 0));
     const updatedAt = new Date().toISOString();
     const hash = await this.hashState(state);
-    const history = (await this.ctx.storage.get<ProjectVersion[]>("project-history")) ?? [];
-    const last = history[history.length - 1];
+    const historyIndex = (await this.ctx.storage.get<Array<{ version: number; label: string; createdAt: string; hash: string }>>("project-history-index")) ?? [];
+    const last = historyIndex[historyIndex.length - 1];
     const shouldVersion = !last || last.hash !== hash || Date.parse(updatedAt) - Date.parse(last.createdAt) >= HISTORY_MIN_INTERVAL_MS;
     let historyVersion: number | null = last?.version ?? null;
     await this.ctx.storage.put("project-state", state);
@@ -59,20 +59,23 @@ export class BeatRoom extends DurableObject<RoomEnv> {
     await this.ctx.storage.put("project-updated-at", updatedAt);
     if (shouldVersion) {
       historyVersion = (last?.version ?? 0) + 1;
-      history.push({ version: historyVersion, label: "Beat v" + historyVersion, createdAt: updatedAt, state: structuredClone(state), hash });
-      await this.ctx.storage.put("project-history", history.slice(-MAX_PROJECT_VERSIONS));
+      const record: ProjectVersion = { version: historyVersion, label: "Beat v" + historyVersion, createdAt: updatedAt, state: structuredClone(state), hash };
+      const nextIndex = [...historyIndex, { version: record.version, label: record.label, createdAt: record.createdAt, hash: record.hash }];
+      const stale = nextIndex.slice(0, -MAX_PROJECT_VERSIONS);
+      for (const item of stale) await this.ctx.storage.delete("project-history:" + item.version);
+      await this.ctx.storage.put("project-history:" + record.version, record);
+      await this.ctx.storage.put("project-history-index", nextIndex.slice(-MAX_PROJECT_VERSIONS));
     }
     return { version, updatedAt, historyVersion };
   }
 
   async getProjectHistory(): Promise<Array<{ version: number; label: string; createdAt: string }>> {
-    const history = (await this.ctx.storage.get<ProjectVersion[]>("project-history")) ?? [];
-    return history.map(({ state: _state, hash: _hash, ...meta }) => meta);
+    const index = (await this.ctx.storage.get<Array<{ version: number; label: string; createdAt: string; hash: string }>>("project-history-index")) ?? [];
+    return index.map(({ hash: _hash, ...meta }) => meta);
   }
 
   async restoreProjectVersion(version: number): Promise<{ version: number; restoredFrom: number; updatedAt: string }> {
-    const history = (await this.ctx.storage.get<ProjectVersion[]>("project-history")) ?? [];
-    const target = history.find(item => item.version === version);
+    const target = await this.ctx.storage.get<ProjectVersion>("project-history:" + version);
     if (!target) throw new Error("Project version not found");
     const restored = await this.saveProjectState(structuredClone(target.state));
     const updatedAt = new Date().toISOString();
