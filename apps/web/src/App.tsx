@@ -114,9 +114,12 @@ export default function App() {
   const [midiHeld, setMidiHeld] = useState<number[]>([]);
   const [mixer, setMixer] = useState<MixerChannel[]>(INITIAL_MIXER);
   const [effects, setEffects] = useState<EffectInstance[]>(INITIAL_EFFECTS);
+  const [masterEffects, setMasterEffects] = useState<EffectInstance[]>([]);
+  const [masterMeter, setMasterMeter] = useState(-Infinity);
   const [gainReduction, setGainReduction] = useState<Record<string, number>>({});
   const audioFxRef = useRef<AudioFxEngine | null>(null);
   const eqCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const masterTestOscRef = useRef<OscillatorNode | null>(null);
   const { state: roomState, presence, updatePresence, publishCursor, publish, events, roomTicket, chatId } = useBeatRoom();
   const appliedOps = useRef(new Set<string>());
 
@@ -127,6 +130,7 @@ export default function App() {
     const tick = () => {
       const engine = audioFxRef.current;
       if (engine) {
+        setMasterMeter(engine.getMeterLevel("master-channel"));
         const next: Record<string, number> = {};
         effects.filter(effect => effect.type === "compressor").forEach(effect => {
           next[effect.id] = engine.getGainReduction("effects-audition", effect.id);
@@ -152,6 +156,14 @@ export default function App() {
       if (event.type !== "sync.operation") continue;
       const op = event.operation;
       if (op.type === "SET_EFFECT_PARAMETER") {
+        if (op.targetId.startsWith("masterfx:")) {
+          const effectId = op.targetId.slice(9);
+          const key = String(op.payload.key);
+          setMasterEffects(current => current.map(effect => effect.id === effectId
+            ? (key.startsWith("params.") ? { ...effect, params: { ...effect.params, [key.slice(7)]: op.payload.value } } : { ...effect, [key]: op.payload.value } as EffectInstance)
+            : effect));
+          continue;
+        }
         const key = String(op.payload.key);
         setEffects(current => current.map(effect => {
           if (effect.id !== op.targetId) return effect;
@@ -418,6 +430,60 @@ export default function App() {
     }
   }
 
+  function addMasterEffect(type: BuiltInEffectType) {
+    const definition = BUILT_IN_EFFECTS.find(item => item.type === type);
+    if (!definition) return;
+    const effect: EffectInstance = { id: crypto.randomUUID(), type, name: definition.name, bypass: false, mix: 100, params: defaultEffectParams(type) };
+    setMasterEffects(current => [...current, effect]);
+    publish("ADD_EFFECT", "masterfx:" + effect.id, { effect }, "master");
+  }
+
+  function updateMasterEffect(id: string, patch: Partial<EffectInstance>) {
+    setMasterEffects(current => current.map(effect => effect.id === id ? { ...effect, ...patch } : effect));
+    for (const [key, value] of Object.entries(patch)) publish("SET_EFFECT_PARAMETER", "masterfx:" + id, { key, value }, "master");
+  }
+
+  function updateMasterEffectParam(id: string, key: string, value: unknown) {
+    setMasterEffects(current => current.map(effect => effect.id === id ? { ...effect, params: { ...effect.params, [key]: value } } : effect));
+    publish("SET_EFFECT_PARAMETER", "masterfx:" + id, { key: "params." + key, value }, "master");
+  }
+
+  function removeMasterEffect(id: string) {
+    setMasterEffects(current => current.filter(effect => effect.id !== id));
+    publish("REMOVE_EFFECT", "masterfx:" + id, {}, "master");
+  }
+
+  function moveMasterEffect(id: string, direction: -1 | 1) {
+    setMasterEffects(current => {
+      const index = current.findIndex(effect => effect.id === id);
+      const next = index + direction;
+      if (index < 0 || next < 0 || next >= current.length) return current;
+      const copy = [...current];
+      [copy[index], copy[next]] = [copy[next], copy[index]];
+      publish("SET_EFFECT_PARAMETER", "masterfx:" + id, { key: "masterOrder", value: copy.map(effect => effect.id) }, "master");
+      return copy;
+    });
+  }
+
+  async function testMasterChain() {
+    if (!audioFxRef.current) audioFxRef.current = new AudioFxEngine();
+    const engine = audioFxRef.current;
+    await engine.resume();
+    masterTestOscRef.current?.stop();
+    const osc = engine.context.createOscillator();
+    const gain = engine.context.createGain();
+    osc.type = "sawtooth";
+    osc.frequency.value = 110;
+    gain.gain.setValueAtTime(0.0001, engine.context.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.15, engine.context.currentTime + 0.03);
+    gain.gain.exponentialRampToValueAtTime(0.0001, engine.context.currentTime + 3);
+    engine.disconnect("master-channel");
+    engine.attachSource("master-channel", osc, masterEffects, engine.context.destination);
+    masterTestOscRef.current = osc;
+    osc.start();
+    osc.stop(engine.context.currentTime + 3.05);
+  }
+
   function addEffect(type: BuiltInEffectType) {
     const definition = BUILT_IN_EFFECTS.find(item => item.type === type);
     if (!definition) return;
@@ -641,6 +707,21 @@ export default function App() {
       <Panel title="Mixer" subtitle="channels · buses · groups · sends · master" className="full-mixer-panel">
 <div className="mixer-toolbar"><button onClick={()=>addMixerChannel("channel")}>+ CHANNEL</button><button onClick={()=>addMixerChannel("bus")}>+ BUS</button><button onClick={()=>addMixerChannel("group")}>+ GROUP</button><button onClick={()=>addMixerChannel("send")}>+ SEND</button><span>{mixer.length} strips</span></div>
 <div className="full-mixer">{mixer.map(ch=><div className={"mixer-strip "+ch.type} key={ch.id}><div className="strip-head"><b>{ch.name}</b><small>{ch.type}</small></div><div className="meter"><i style={{height:Math.max(3,Math.min(100,(60+ch.peak)*1.5))+"%"}}/></div><input className="fader" type="range" min="-60" max="6" step=".1" value={ch.volume} onChange={e=>updateMixer(ch.id,{volume:Number(e.target.value)})}/><div className="strip-db">{ch.volume.toFixed(1)} dB</div><input type="range" min="-100" max="100" value={ch.pan} onChange={e=>updateMixer(ch.id,{pan:Number(e.target.value)})}/><div className="strip-buttons"><button className={ch.mute?"on":""} onClick={()=>updateMixer(ch.id,{mute:!ch.mute})}>M</button><button className={ch.solo?"on":""} onClick={()=>updateMixer(ch.id,{solo:!ch.solo})}>S</button></div><select value={ch.route} onChange={e=>updateMixer(ch.id,{route:e.target.value})}>{mixer.filter(x=>x.type==="bus"||x.type==="master").map(x=><option key={x.id}>{x.name}</option>)}</select><div className="insert-list">{ch.inserts.map((fx,i)=><button key={i} onClick={()=>{const inserts=ch.inserts.filter((_,j)=>j!==i);updateMixer(ch.id,{inserts})}}>{fx} ×</button>)}<button onClick={()=>updateMixer(ch.id,{inserts:[...ch.inserts,"EQ"]})}>+ FX</button></div><div className="send-list">{Object.entries(ch.sends).map(([send,value])=><label key={send}>{send}<input type="range" min="-60" max="0" value={value} onChange={e=>updateMixer(ch.id,{sends:{...ch.sends,[send]:Number(e.target.value)}})}/></label>)}</div></div>)}</div>
+</Panel>
+<Panel title="Master Channel" subtitle="master insert chain · signal meter" className="master-channel-panel">
+  <div className="master-channel-head">
+    <div><b>MASTER</b><span>{masterEffects.length} inserts · signal path</span></div>
+    <button onClick={()=>void testMasterChain()}>▶ TEST MASTER</button>
+  </div>
+  <div className="master-meter-row">
+    <div className="master-meter"><i style={{height:(Number.isFinite(masterMeter)?Math.max(0,Math.min(100,(masterMeter+60)/60*100)):0)+"%"}} /></div>
+    <div><b>{Number.isFinite(masterMeter)?masterMeter.toFixed(1):"-∞"} dBFS</b><span>MASTER LEVEL</span></div>
+  </div>
+  <div className="master-browser">{["parametric-eq","compressor","saturation","reverb","limiter"].map(type=>{const item=BUILT_IN_EFFECTS.find(effect=>effect.type===type); return item ? <button key={type} onClick={()=>addMasterEffect(type as BuiltInEffectType)}>+ {item.name}</button> : null;})}</div>
+  <div className="master-rack">{masterEffects.map((effect,index)=><div className={"master-effect "+(effect.bypass?"bypassed":"")} key={effect.id}>
+    <div className="effect-head"><b>{index+1}. {effect.name}</b><span>{effect.type}</span><button onClick={()=>updateMasterEffect(effect.id,{bypass:!effect.bypass})}>{effect.bypass?"BYP":"ON"}</button><button onClick={()=>moveMasterEffect(effect.id,-1)}>↑</button><button onClick={()=>moveMasterEffect(effect.id,1)}>↓</button><button onClick={()=>removeMasterEffect(effect.id)}>×</button></div>
+    <div className="effect-params">{Object.entries(effect.params).filter(([,value])=>typeof value==="number").map(([key,value])=><label key={key}><span>{key.replace(/([A-Z])/g," $1")}</span><input type="range" min={key==="threshold"||key==="makeup"?-60:key==="ratio"?1:key==="attack"||key==="release"?0:0} max={key==="threshold"?0:key==="ratio"?20:key==="attack"||key==="release"?1:key==="makeup"?24:100} step={key==="ratio"?0.1:key==="attack"||key==="release"?0.001:0.1} value={Number(value)} onChange={e=>updateMasterEffectParam(effect.id,key,Number(e.target.value))}/><b>{Number(value).toFixed(2)}</b></label>)}</div>
+  </div>)}</div>
 </Panel>
 <Panel title="Effects" subtitle="real-time Web Audio processing · shared rack" className="effects-panel">
   <div className="effects-toolbar"><button onClick={()=>{setEqAnalyzing(true);void auditionEffects()}}>▶ TEST AUDIO</button><span>{effects.length} inserts · Web Audio DSP</span></div>
