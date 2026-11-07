@@ -1,6 +1,6 @@
 import type { BuiltInEffectType, EffectInstance } from "../../../packages/shared/src/effects";
 
-type EffectNode = { input: AudioNode; output: AudioNode; dispose: () => void; setParameter: (key:string,value:unknown) => void };
+type EffectNode = { input: AudioNode; output: AudioNode; analyzer?: AnalyserNode; dispose: () => void; setParameter: (key:string,value:unknown) => void };
 
 const db = (value:number) => Math.pow(10, value / 20);
 const clamp = (v:number,min:number,max:number) => Math.max(min,Math.min(max,v));
@@ -51,12 +51,18 @@ export class AudioFxEngine {
 
     switch(effect.type){
       case "parametric-eq": {
-        const low=c.createBiquadFilter(), mid=c.createBiquadFilter(), high=c.createBiquadFilter();
-        low.type="lowshelf"; low.frequency.value=Number(p.lowFreq??120); low.gain.value=Number(p.lowGain??0);
-        mid.type="peaking"; mid.frequency.value=Number(p.midFreq??1200); mid.Q.value=Number(p.midQ??1); mid.gain.value=Number(p.midGain??0);
-        high.type="highshelf"; high.frequency.value=Number(p.highFreq??8000); high.gain.value=Number(p.highGain??0);
-        connectChain([input,low,mid,high,wetGain]); processor=mid;
-        (processor as BiquadFilterNode).gain.value=Number(p.midGain??0);
+        let bands: Array<{id:string;frequency:number;gain:number;q:number;type:BiquadFilterType;enabled:boolean}> = [];
+        try { bands = JSON.parse(String(p.bands ?? "[]")); } catch { bands = []; }
+        if (!bands.length) bands = [
+          {id:"eq1",frequency:80,gain:0,q:.71,type:"lowshelf",enabled:true},
+          {id:"eq2",frequency:180,gain:0,q:1,type:"peaking",enabled:true},
+          {id:"eq3",frequency:500,gain:0,q:1,type:"peaking",enabled:true},
+          {id:"eq4",frequency:1200,gain:0,q:1,type:"peaking",enabled:true},
+          {id:"eq5",frequency:3500,gain:0,q:1,type:"peaking",enabled:true},
+          {id:"eq6",frequency:9000,gain:0,q:.71,type:"highshelf",enabled:true}
+        ];
+        const filters = bands.map(b => { const f=c.createBiquadFilter(); f.type=b.type; f.frequency.value=clamp(b.frequency,20,20000); f.gain.value=clamp(b.gain,-24,24); f.Q.value=clamp(b.q,.05,30); f.enabled=b.enabled; return f; });
+        connectChain([input,...filters,wetGain]); processor=filters[0] ?? input;
         break;
       }
       case "compressor": {
@@ -114,8 +120,8 @@ export class AudioFxEngine {
     return {input,output,dispose:()=>{},setParameter:param};
   }
 
-  createChain(id:string,effects:EffectInstance[]): AudioNode {
-    const nodes=effects.map(e=>this.createEffect(e)); this.chains.set(id,nodes);
+  getAnalyzer(id:string): AnalyserNode | undefined { return this.chains.get(id)?.at(-1)?.analyzer; }\n\n  createChain(id:string,effects:EffectInstance[]): AudioNode {
+    const nodes=effects.map(e=>this.createEffect(e));\n    const analyzer=this.context.createAnalyser(); analyzer.fftSize=2048; analyzer.smoothingTimeConstant=.82;\n    if(nodes.length) nodes.at(-1)!.output.connect(analyzer);\n    if(nodes.length) (nodes.at(-1) as EffectNode).analyzer=analyzer;\n    this.chains.set(id,nodes);
     for(let i=0;i<nodes.length-1;i++) nodes[i].output.connect(nodes[i+1].input);
     return nodes.length?nodes[0].input:this.context.createGain();
   }
