@@ -8,6 +8,8 @@ export class RealAudioEngine {
   private masterFx: AudioFxEngine | null = null;
   private masterEffects: EffectInstance[] = [];
   private loaded = false;
+  private masterGain: GainNode | null = null;
+  private masterPan: StereoPannerNode | null = null;
 
   constructor() { this.context = new AudioContext(); }
 
@@ -65,3 +67,19 @@ export class RealAudioEngine {
   }
 }
 \nfunction currentFrameFallback(context: AudioContext): number { return Math.floor(context.currentTime * context.sampleRate); }\n
+  setAutomationValue(target: string, parameter: string, value: number): void {
+    if (target === "volume") {
+      this.masterGain?.gain.setTargetAtTime(Math.pow(10, (value - 100) * 0.6 / 20), this.context.currentTime, 0.012);
+      return;
+    }
+    if (target === "pan") {
+      this.masterPan?.pan.setTargetAtTime(Math.max(-1, Math.min(1, value / 100)), this.context.currentTime, 0.012);
+      return;
+    }
+    if (target === "effect.parameter" || target === "master.parameter") {
+      const separator = parameter.indexOf(".");
+      if (separator > 0) this.masterFx?.setEffectParameter("master-channel", parameter.slice(0, separator), parameter.slice(separator + 1), value);
+      return;
+    }
+    this.node?.port.postMessage({ type: "automation", target, parameter, value });
+  }
