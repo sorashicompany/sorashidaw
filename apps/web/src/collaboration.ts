@@ -146,6 +146,24 @@ export function useBeatRoom() {
     } catch { return false; }
   }
 
+  async function getProjectHistory() {
+    const identity = identityRef.current; const ticket = ticketRef.current;
+    if (!identity || !ticket) return [];
+    try {
+      const response = await fetch("/api/room/history?chatId=" + encodeURIComponent(String(identity.chatId)) + "&ticket=" + encodeURIComponent(ticket));
+      return response.ok ? await response.json() as Array<{ version:number; label:string; createdAt:string }> : [];
+    } catch { return []; }
+  }
+
+  async function restoreProjectVersion(version: number) {
+    const identity = identityRef.current; const ticket = ticketRef.current;
+    if (!identity || !ticket) return false;
+    try {
+      const response = await fetch("/api/room/history/" + encodeURIComponent(String(version)) + "?chatId=" + encodeURIComponent(String(identity.chatId)) + "&ticket=" + encodeURIComponent(ticket), { method:"POST" });
+      return response.ok;
+    } catch { return false; }
+  }
+
   function publish(
     type: CollaborationOperationType,
     targetId: string,
@@ -181,7 +199,7 @@ export function useBeatRoom() {
     const socket = socketRef.current; if (!socket || socket.readyState !== WebSocket.OPEN) return;
     socket.send(JSON.stringify({ type: "cursor.move", cursor: { x, y }, area }));
   }
-  return { state, events, presence, publish, publishTransport, transport, serverOffsetMs, updatePresence, publishCursor, sequence: sequenceRef.current, roomTicket, chatId, projectState, projectVersion, projectLoaded, saveProjectState };
+  return { state, events, presence, publish, publishTransport, transport, serverOffsetMs, updatePresence, publishCursor, sequence: sequenceRef.current, roomTicket, chatId, projectState, projectVersion, projectLoaded, saveProjectState, getProjectHistory, restoreProjectVersion };
 }
 
 declare global {
