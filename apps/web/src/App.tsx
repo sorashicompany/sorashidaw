@@ -148,7 +148,7 @@ export default function App() {
   });
 
   const scheduleProjectSave = () => {
-    if (!projectHydratedRef.current || !chatId) return;
+    if (!projectHydratedRef.current || !projectLoaded || !chatId) return;
     if (saveTimerRef.current !== undefined) window.clearTimeout(saveTimerRef.current);
     saveTimerRef.current = window.setTimeout(() => void saveProjectState(buildProjectSnapshot()), 900);
   };
@@ -180,7 +180,7 @@ export default function App() {
       setLoopEndBeats(Number(saved.loop.endBeats ?? 64));
     }
     projectHydratedRef.current = true;
-  }, [savedProjectState]);
+  }, [savedProjectState, projectLoaded]);
 
   useEffect(() => {
     scheduleProjectSave();
