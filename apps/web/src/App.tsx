@@ -1103,6 +1103,21 @@ export default function App() {
     } finally { setExportBusy(false); }
   }
 
+  async function sendCurrentExportToTelegram() {
+    const target = exportTargets.find(item => item.id === exportTargetId);
+    if (!target || !roomTicket || !chatId || exportBusy) return;
+    setExportBusy(true);
+    try {
+      const blob = await renderWav(exportProject, target);
+      const safeName = target.label.replace(/[^a-z0-9_-]+/gi, "-").replace(/^-|-$/g, "").toLowerCase() || "export";
+      const form = new FormData();
+      form.set("file", new File([blob], safeName + ".wav", { type: "audio/wav" }));
+      form.set("caption", "Sorashi DAW · " + target.label);
+      const response = await fetch("/api/bot/export?chatId=" + encodeURIComponent(String(chatId)) + "&ticket=" + encodeURIComponent(roomTicket), { method: "POST", body: form });
+      if (!response.ok) throw new Error("Telegram export failed");
+    } finally { setExportBusy(false); }
+  }
+
 
   return (
     <main className="daw">
@@ -1128,7 +1143,7 @@ export default function App() {
               <button disabled={exportBusy} onClick={() => void runExport("wav")}>WAV</button>
               <button disabled={exportBusy} onClick={() => void runExport("mp3")}>MP3</button>
               <button disabled={exportBusy} onClick={() => void runExport("midi")}>MIDI</button>
-              <button disabled={exportBusy} onClick={() => void exportAllStems()}>ALL STEMS · WAV</button>
+              <button disabled={exportBusy} onClick={() => void exportAllStems()}>ALL STEMS · WAV</button><button disabled={exportBusy} onClick={() => void sendCurrentExportToTelegram()}>SEND TO CHAT</button>
             </div>
             <small className="export-note">{exportBusy ? "Rendering…" : "Master, channels and groups are rendered locally. MP3 uses the browser codec when available; otherwise WAV is produced."}</small>
           </div>}
