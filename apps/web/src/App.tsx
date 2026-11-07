@@ -1269,4 +1269,15 @@ function DockHeader({ title, action }: { title: string; action: string }) { retu
 function Knob({ label }: { label: string }) { return <div className="knob"><i /><span>{label}</span></div>; }
 function formatTransportTime(beats: number, bpm: number) { const seconds = Math.max(0, beats * 60 / Math.max(1, bpm)); const mins = Math.floor(seconds / 60); const secs = Math.floor(seconds % 60); const ms = Math.floor((seconds % 1) * 1000); return String(mins).padStart(2,"0") + ":" + String(secs).padStart(2,"0") + "." + String(ms).padStart(3,"0"); }
 function initials(name: string) { return name.trim().split(/\s+/).map(part => part[0]).join("").slice(0, 2).toUpperCase(); }
-function icon(windowName: WindowName) { return ({ Playlist: "▤", "Step Sequencer": "▦", "Piano Roll": "⌁", Mixer: "▥", Browser: "⌕", Synthesizer: "◉", Effects: "✦" } as Record<WindowName, string>)[windowName]; }
+function icon(windowName: WindowName) { return ({ Playlist: "▤", "Step Sequencer": "▦", "Piano Roll": "⌁", Mixer: "▥", Browser: "⌕", Synthesizer: "◉", Effects: "✦" } as Record<WindowName, string>)[windowName]; }  useEffect(() => {
+    for (const event of events) {
+      if (event.type !== "sync.operation" || (event.operation.type !== "UNDO_PATCH" && event.operation.type !== "REDO_PATCH")) continue;
+      const changes = event.operation.payload.changes as SnapshotChange[] | undefined;
+      if (!Array.isArray(changes) || !changes.length) continue;
+      const direction = event.operation.type === "UNDO_PATCH" ? "undo" : "redo";
+      const current = buildProjectSnapshot();
+      applyProjectSnapshot(applySnapshotChanges(current, changes, direction));
+    }
+  }, [events]);
+
+
