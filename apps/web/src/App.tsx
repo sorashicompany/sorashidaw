@@ -447,11 +447,15 @@ export default function App() {
 
   function updateMasterEffect(id: string, patch: Partial<EffectInstance>) {
     setMasterEffects(current => current.map(effect => effect.id === id ? { ...effect, ...patch } : effect));
-    for (const [key, value] of Object.entries(patch)) publish("SET_EFFECT_PARAMETER", "masterfx:" + id, { key, value }, "master");
+    for (const [key, value] of Object.entries(patch)) {
+      publish("SET_EFFECT_PARAMETER", "masterfx:" + id, { key, value }, "master");
+      if (key === "bypass") audioFxRef.current?.setEffectBypass("master-channel", id, Boolean(value));
+    }
   }
 
   function updateMasterEffectParam(id: string, key: string, value: unknown) {
     setMasterEffects(current => current.map(effect => effect.id === id ? { ...effect, params: { ...effect.params, [key]: value } } : effect));
+    audioFxRef.current?.setEffectParameter("master-channel", id, key, value);
     publish("SET_EFFECT_PARAMETER", "masterfx:" + id, { key: "params." + key, value }, "master");
   }
 
@@ -468,7 +472,6 @@ export default function App() {
       const copy = [...current];
       [copy[index], copy[next]] = [copy[next], copy[index]];
       publish("SET_EFFECT_PARAMETER", "masterfx:" + id, { key: "masterOrder", value: copy.map(effect => effect.id) }, "master");
-      void testMasterChain();
       return copy;
     });
   }
