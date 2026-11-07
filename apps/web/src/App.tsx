@@ -558,6 +558,69 @@ export default function App() {
     for (const event of events) {
       if (event.type !== "sync.operation") continue;
       const op = event.operation;
+      if (op.actorId === userId) continue;
+      if (op.type === "ADD_TRACK" && op.payload && typeof op.payload === "object") {
+        const track = op.payload as unknown as Track;
+        setTracks(current => current.some(item => item.id === track.id) ? current : [...current, track]);
+      } else if (op.type === "ADD_MARKER" && op.payload && typeof op.payload === "object") {
+        const marker = op.payload as unknown as Marker;
+        setMarkers(current => current.some(item => item.id === marker.id) ? current : [...current, marker]);
+      } else if (op.type === "CHANGE_BPM") {
+        setBpm(Number(op.payload.bpm ?? 128));
+      } else if (op.type === "CHANGE_PATTERN") {
+        const channelId = op.targetId;
+        const step = Number(op.payload.step);
+        if (Number.isInteger(step) && step >= 0) {
+          setDrumChannels(current => current.map(channel => {
+            if (channel.id !== channelId) return channel;
+            const steps = [...channel.steps];
+            if (step >= steps.length) steps.length = Math.max(step + 1, Number(op.payload.length ?? steps.length));
+            steps[step] = Boolean(op.payload.enabled);
+            return { ...channel, steps };
+          }));
+        }
+        if (typeof op.payload.length === "number") setPatternLength(Number(op.payload.length));
+      } else if (op.type === "UPDATE_DRUM_CHANNEL" && op.payload) {
+        const { pattern: _pattern, ...patch } = op.payload as Partial<DrumChannel> & { pattern?: string };
+        setDrumChannels(current => current.map(channel => channel.id === op.targetId ? { ...channel, ...patch } : channel));
+      } else if ((op.type === "ADD_AUDIO_CLIP" || op.type === "ADD_MIDI_CLIP" || op.type === "ADD_PATTERN_CLIP" || op.type === "ADD_LOOP_CLIP") && op.payload) {
+        const clip = op.payload as unknown as Clip;
+        const trackId = op.trackId ?? "drums";
+        setTracks(current => current.map(track => track.id === trackId && !track.clips.some(item => item.id === clip.id)
+          ? { ...track, clips: [...track.clips, clip] }
+          : track));
+      } else if (op.type === "MOVE_CLIP" && op.payload) {
+        setTracks(current => current.map(track => ({ ...track, clips: track.clips.map(clip => clip.id === op.targetId ? { ...clip, ...(op.payload as Partial<Clip>) } : clip) })));
+      } else if ((op.type === "PASTE_CLIP" || op.type === "DUPLICATE_CLIP") && op.payload) {
+        const clip = op.payload as unknown as Clip;
+        const trackId = op.trackId ?? "drums";
+        setTracks(current => current.map(track => track.id === trackId && !track.clips.some(item => item.id === clip.id)
+          ? { ...track, clips: [...track.clips, clip] }
+          : track));
+      } else if (op.type === "DELETE_CLIP") {
+        setTracks(current => current.map(track => ({ ...track, clips: track.clips.filter(clip => clip.id !== op.targetId) })));
+        setSelectedClip(current => current === op.targetId ? null : current);
+      } else if (op.type === "SPLIT_CLIP" && op.payload) {
+        const split = op.payload as { left?: Clip; right?: Clip };
+        if (split.left && split.right) {
+          setTracks(current => current.map(track => track.id === op.trackId
+            ? { ...track, clips: [...track.clips.filter(item => item.id !== op.targetId), split.left!, split.right!] }
+            : track));
+          setSelectedClip(split.right.id);
+        }
+      } else if (op.type === "SET_GRID") {
+        if (typeof op.payload.snap === "number") setSnap(Number(op.payload.snap));
+      } else if (op.type === "SET_ZOOM") {
+        if (typeof op.payload.zoom === "number") setZoom(Number(op.payload.zoom));
+      }
+    }
+  }, [events, userId]);
+
+  useEffect(() => {
+    for (const event of events) {
+      if (event.type !== "sync.operation") continue;
+      const op = event.operation;
+      if (op.actorId === userId) continue;
       if (op.type === "SET_AUTOMATION") {
         const laneId = String(op.payload.laneId ?? op.targetId);
         const point = op.payload.point as AutomationPoint | undefined;
@@ -603,21 +666,23 @@ export default function App() {
         else setEffects(current => current.filter(effect => effect.id !== op.targetId));
       }
     }
-  }, [events]);
+  }, [events, userId]);
 
   useEffect(() => {
     for (const event of events) {
       if (event.type !== "sync.operation") continue;
       const op=event.operation;
+      if (op.actorId === userId)
       if (op.type==="SET_MIXER_PARAMETER") setMixer(current=>current.map(ch=>ch.id===op.targetId ? {...ch,[String(op.payload.key)]:op.payload.value} : ch));
       if (op.type==="ADD_MIXER_CHANNEL" && op.payload.channel) setMixer(current=>current.some(ch=>ch.id===op.targetId)?current:[...current.filter(ch=>ch.id!=="master"),op.payload.channel as MixerChannel,current.find(ch=>ch.id==="master")!]);
     }
-  },[events]);
+  },[events, userId]);
 
   useEffect(() => {
     for (const event of events) {
       if (event.type !== "sync.operation") continue;
       const op = event.operation;
+      if (op.actorId === userId) continue;
       if (op.type === "MIDI_NOTE_ON") {
         const note = Number(op.payload.note);
         setMidiHeld(prev => prev.includes(note) ? prev : [...prev, note]);
@@ -628,11 +693,11 @@ export default function App() {
         setMidiCC(prev => [...prev.filter(cc => cc.controller !== Number(op.payload.controller)), { controller:Number(op.payload.controller), value:Number(op.payload.value), channel:Number(op.payload.channel) }].slice(-32));
       }
     }
-  }, [events]);
+  }, [events, userId]);
 
   useEffect(() => {
     for (const event of events) {
-      if (event.type !== "sync.operation" || event.operation.type !== "SET_SYNTH_PARAMETER") continue;
+      if (event.type !== "sync.operation" || event.operation.type !== "SET_SYNTH_PARAMETER" || event.operation.actorId === userId) continue;
       const { path, value } = event.operation.payload;
       if (typeof path !== "string") continue;
       setSynth(current => {
@@ -644,20 +709,21 @@ export default function App() {
         return next;
       });
     }
-  }, [events]);
+  }, [events, userId]);
 
   useEffect(() => {
     for (const event of events) {
-      if (event.type !== "sync.operation" || event.operation.type !== "ADD_DRUM_SAMPLE") continue;
+      if (event.type !== "sync.operation" || event.operation.type !== "ADD_DRUM_SAMPLE" || event.operation.actorId === userId) continue;
       const asset = event.operation.payload.asset as DrumAsset | undefined;
       if (asset && !drumAssets.some(item => item.id === asset.id)) setDrumAssets(current => [...current, asset]);
     }
-  }, [events]);
+  }, [events, userId]);
 
   useEffect(() => {
     for (const event of events) {
       if (event.type !== "sync.operation") continue;
       const op = event.operation;
+      if (op.actorId === userId) continue;
       if (op.type === "ADD_NOTE") {
         const note = op.payload as unknown as MidiNote;
         setPianoNotes(current => current.some(item => item.id === note.id) ? current : [...current, note]);
@@ -674,7 +740,7 @@ export default function App() {
         setSelectedNotes(current => current.filter(id => id !== op.targetId));
       }
     }
-  }, [events, pianoSnap]);
+  }, [events, pianoSnap, userId]);
 
   useEffect(() => {
     if (!playing) return;
