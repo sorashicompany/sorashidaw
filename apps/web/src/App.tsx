@@ -7,6 +7,7 @@ type WindowName = (typeof windows)[number];
 type ClipKind = "audio" | "midi" | "pattern" | "loop";
 type DrumChannel = { id: string; name: string; sample: string; sampleId?: string; steps: boolean[]; volume: number; pan: number; mute: boolean; solo: boolean; velocity: number; };
 type DrumAsset = { id: string; name: string; category: string; folder: string; mimeType: string; size: number; previewUrl?: string; };
+type MidiNote = { id: string; pitch: number; start: number; length: number; velocity: number; selected?: boolean };
 
 type Track = {
   id: string;
@@ -75,6 +76,12 @@ export default function App() {
   ]);
   const [activePattern, setActivePattern] = useState("Pattern 01");
   const [patternNames, setPatternNames] = useState(["Pattern 01", "Pattern 02"]);
+  const [pianoNotes, setPianoNotes] = useState<MidiNote[]>([{ id: "n1", pitch: 60, start: 0, length: 2, velocity: 100 }, { id: "n2", pitch: 64, start: 2, length: 2, velocity: 86 }, { id: "n3", pitch: 67, start: 4, length: 4, velocity: 92 }, { id: "n4", pitch: 72, start: 8, length: 2, velocity: 110 }]);
+  const [selectedNotes, setSelectedNotes] = useState<string[]>([]);
+  const [pianoZoom, setPianoZoom] = useState(1);
+  const [pianoSnap, setPianoSnap] = useState(1);
+  const [scaleRoot, setScaleRoot] = useState(0);
+  const [scaleMode, setScaleMode] = useState("minor");
   const { state: roomState, presence, updatePresence, publishCursor, publish, events } = useBeatRoom();
   const appliedOps = useRef(new Set<string>());
 
@@ -227,6 +234,17 @@ export default function App() {
     emit("ADD_PATTERN_CLIP", clip.id, clip, "drums");
   }
 
+  function quantize(value: number) { return Math.max(0, Math.round(value / pianoSnap) * pianoSnap); }
+  function addMidiNote(pitch: number, start: number) { const note: MidiNote = { id: crypto.randomUUID(), pitch, start: quantize(start), length: Math.max(pianoSnap, pianoSnap * 2), velocity: 100 }; setPianoNotes(current => [...current, note]); setSelectedNotes([note.id]); emit("ADD_NOTE", note.id, note, "keys"); }
+  function selectMidiNote(id: string, additive: boolean) { setSelectedNotes(current => additive ? (current.includes(id) ? current.filter(item => item !== id) : [...current, id]) : [id]); }
+  function moveMidiNotes(dp: number, dt: number) { const ids = new Set(selectedNotes); setPianoNotes(current => current.map(n => ids.has(n.id) ? { ...n, pitch: Math.max(0, Math.min(127, n.pitch + dp)), start: quantize(n.start + dt) } : n)); selectedNotes.forEach(id => emit("MOVE_NOTE", id, { pitchDelta: dp, startDelta: dt }, "keys")); }
+  function resizeMidiNotes(delta: number) { const ids = new Set(selectedNotes); setPianoNotes(current => current.map(n => ids.has(n.id) ? { ...n, length: Math.max(pianoSnap, quantize(n.length + delta)) } : n)); selectedNotes.forEach(id => emit("MOVE_NOTE", id, { lengthDelta: delta }, "keys")); }
+  function changeMidiVelocity(value: number) { const ids = new Set(selectedNotes); setPianoNotes(current => current.map(n => ids.has(n.id) ? { ...n, velocity: value } : n)); selectedNotes.forEach(id => emit("CHANGE_VELOCITY", id, { velocity: value }, "keys")); }
+  function deleteMidiNotes() { selectedNotes.forEach(id => emit("DELETE_NOTE", id, {}, "keys")); setPianoNotes(current => current.filter(n => !selectedNotes.includes(n.id))); setSelectedNotes([]); }
+  function duplicateMidiNotes() { const copies = pianoNotes.filter(n => selectedNotes.includes(n.id)).map(n => ({ ...n, id: crypto.randomUUID(), start: quantize(n.start + n.length) })); setPianoNotes(current => [...current, ...copies]); setSelectedNotes(copies.map(n => n.id)); copies.forEach(note => emit("ADD_NOTE", note.id, note, "keys")); }
+  function copyMidiNotes() { const data = pianoNotes.filter(n => selectedNotes.includes(n.id)); if (data.length) localStorage.setItem("sorashi-midi-clipboard", JSON.stringify(data)); }
+  function pasteMidiNotes() { try { const data = JSON.parse(localStorage.getItem("sorashi-midi-clipboard") || "[]") as MidiNote[]; const copies = data.map(n => ({ ...n, id: crypto.randomUUID(), start: quantize(n.start + pianoSnap) })); setPianoNotes(current => [...current, ...copies]); setSelectedNotes(copies.map(n => n.id)); copies.forEach(note => emit("ADD_NOTE", note.id, note, "keys")); } catch {} }
+
   function toggleStep(step: number) {
     setSteps(current => {
       const next = current.includes(step) ? current.filter(item => item !== step) : [...current, step];
@@ -346,9 +364,18 @@ export default function App() {
   } else updateDrumChannel(channel.id, { sample: value, sampleId: undefined });
 }}><optgroup label="Built-in">{DRUM_SAMPLES.map(sample => <option key={sample} value={sample}>{sample}</option>)}</optgroup><optgroup label="Room Drum Kit">{drumAssets.map(asset => <option key={asset.id} value={"asset:" + asset.id}>{asset.name}</option>)}</optgroup></select><input className="mini-number" value={channel.volume} type="number" min="-60" max="6" onChange={event => updateDrumChannel(channel.id, { volume: Number(event.target.value) })}/><input className="mini-pan" value={channel.pan} type="range" min="-100" max="100" onChange={event => updateDrumChannel(channel.id, { pan: Number(event.target.value) })}/><div className="ms"><button className={channel.mute ? "on" : ""} onClick={() => updateDrumChannel(channel.id, { mute: !channel.mute })}>M</button><button className={channel.solo ? "on" : ""} onClick={() => updateDrumChannel(channel.id, { solo: !channel.solo })}>S</button></div><input className="velocity" value={channel.velocity} type="range" min="1" max="127" onChange={event => updateDrumChannel(channel.id, { velocity: Number(event.target.value) })}/><div className="steps">{Array.from({ length: patternLength }, (_, index) => <button key={index} className={channel.steps[index] ? "step on" : "step"} onClick={() => toggleDrumStep(channel.id, index)} />)}</div></div>)}</div><div className="panel-footer"><span>{drumChannels[0]?.steps.slice(0, patternLength).filter(Boolean).length ?? 0} kick hits</span><span>{patternLength} steps · {activePattern}</span></div>
             </Panel>
-            <Panel title="Piano Roll" subtitle="Bass · C minor" className="piano-panel">
-              <div className="piano-roll"><div className="piano-keys">{["C", "B", "A", "G", "F", "E", "D"].map(key => <span key={key}>{key}</span>)}</div><div className="note-grid">{Array.from({ length: 12 }, (_, index) => <button key={index} className={"note note-" + index} onClick={() => emit("ADD_NOTE", "bass-note-" + index, { pitch: 60 + index, bar }, "bass")} />)}</div></div>
-            </Panel>
+            <Panel title="Piano Roll" subtitle="MIDI · C minor" className="piano-panel">
+  <div className="piano-toolbar"><div className="piano-tools"><button onClick={deleteMidiNotes}>Delete</button><button onClick={copyMidiNotes}>Copy</button><button onClick={pasteMidiNotes}>Paste</button><button onClick={duplicateMidiNotes}>Duplicate</button></div><label>Snap <select value={pianoSnap} onChange={event => setPianoSnap(Number(event.target.value))}><option value={0.25}>1/16</option><option value={0.5}>1/8</option><option value={1}>1/4</option><option value={2}>1/2</option></select></label><label>Scale <select value={scaleRoot} onChange={event => setScaleRoot(Number(event.target.value))}>{["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"].map((n,i)=><option key={n} value={i}>{n}</option>)}</select><select value={scaleMode} onChange={event => setScaleMode(event.target.value)}><option value="minor">minor</option><option value="major">major</option></select></label><label>Zoom <input type="range" min="0.6" max="2.5" step="0.1" value={pianoZoom} onChange={event => setPianoZoom(Number(event.target.value))}/></label></div>
+  <div className="piano-editor" style={{ "--piano-zoom": pianoZoom } as React.CSSProperties}>
+    <div className="piano-keyboard">{Array.from({length: 24},(_,i)=>{const pitch=83-i; return <button key={pitch} className={pitch%12===scaleRoot ? "scale-key" : ""}>{["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"][pitch%12]}{pitch}</button>})}</div>
+    <div className="piano-scroll"><div className="piano-timeline">{Array.from({length:32},(_,i)=><span key={i}>{i+1}</span>)}</div>
+      <div className="piano-grid">{Array.from({length:24},(_,r)=>{const pitch=83-r; return <div className={"piano-row "+(pitch%12===scaleRoot ? "scale-row" : "")} key={pitch}><div className="piano-cells">{Array.from({length:32},(_,col)=><button key={col} className="piano-cell" onClick={()=>addMidiNote(pitch,col)} />)}</div></div>})}
+      {pianoNotes.map(note=><button key={note.id} className={"midi-note "+(selectedNotes.includes(note.id)?"selected":"")} style={{left:(note.start/32*100)+"%",top:((83-note.pitch)*22)+"px",width:Math.max(1,note.length/32*100)+"%",opacity:0.35+note.velocity/180}} onClick={event=>{event.stopPropagation();selectMidiNote(note.id,event.shiftKey)}} title={"Pitch "+note.pitch+" · Velocity "+note.velocity}>{note.pitch}</button>)}</div>
+    </div>
+  </div>
+  <div className="velocity-editor"><span>Velocity</span>{selectedNotes.length>0 && <input type="range" min="1" max="127" value={pianoNotes.find(n=>n.id===selectedNotes[0])?.velocity ?? 100} onChange={event=>changeMidiVelocity(Number(event.target.value))}/>}</div>
+  <div className="piano-actions"><button onClick={()=>moveMidiNotes(1,0)}>Pitch +</button><button onClick={()=>moveMidiNotes(-1,0)}>Pitch −</button><button onClick={()=>moveMidiNotes(0,pianoSnap)}>Move →</button><button onClick={()=>resizeMidiNotes(pianoSnap)}>Length +</button><button onClick={()=>resizeMidiNotes(-pianoSnap)}>Length −</button></div>
+</Panel>
           </div>
         </section>
 
