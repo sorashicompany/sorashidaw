@@ -70,6 +70,7 @@ export function useBeatRoom() {
             if ("sequence" in message && message.sequence > sequenceRef.current) {
               sequenceRef.current = message.sequence;
             }
+            if (message.type === "sync.clock") setServerOffsetMs(message.serverTimeMs - Date.now());
             if (message.type === "sync.presence.snapshot") setPresence(message.presence);
             if (message.type === "sync.operation" && message.operation.type === "TRANSPORT_SET") {
               const p = message.operation.payload as Partial<RoomTransportState>;
