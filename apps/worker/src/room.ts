@@ -76,6 +76,8 @@ export class BeatRoom extends DurableObject<RoomEnv> {
   }
   async webSocketError(ws: WebSocket, error: unknown) { console.error("BeatRoom WebSocket error", error); }
 
+  async webSocketFetch(request: Request) { return this.fetch(request); }
+
   private currentPresence(): PresenceState[] {
     return this.ctx.getWebSockets().map(ws => (ws.deserializeAttachment() as Connection).presence);
   }
