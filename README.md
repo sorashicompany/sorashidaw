@@ -74,6 +74,25 @@ Beat Room realtime editing uses a Cloudflare Durable Object per verified Telegra
 - WebSocket authentication uses a short-lived Worker-signed room ticket derived from verified Telegram WebApp data; raw Telegram initData is not sent to the room WebSocket.
 - The Durable Object is the realtime coordination layer. Persistent project snapshots and event history remain a separate concern for Supabase and are intentionally not conflated with live transport.
 
+## Scalability
+
+Beat Rooms are isolated by verified Telegram chat identity. The runtime mapping is:
+
+`Telegram chat → Durable Object instance → isolated realtime channel`
+
+This supports many independent rooms without a global collaboration state. For example, 1000 Telegram chats resolve to 1000 logically independent Beat Rooms. Each room has its own project state, operation sequence/log, connected participants, presence, transport state and R2 asset namespace.
+
+Scaling boundaries:
+
+- Durable Objects provide per-room coordination and serialization. Busy rooms concentrate work in their own instance instead of sharing one global realtime lock.
+- Workers remain stateless at the HTTP edge; authentication, room ticket verification and routing can execute across Cloudflare's distributed edge.
+- R2 assets are partitioned by verified chat ID, so samples and audio from one room are not mixed with another room's asset namespace.
+- Project state and version history are room-scoped rather than held in a process-wide memory structure.
+- WebSocket traffic is incremental operations. Presence and cursor traffic is ephemeral and separate from project history.
+- Reconnect uses operation sequence numbers, allowing a client to replay only operations after its last acknowledged position.
+
+The architecture therefore scales horizontally across independent rooms at the coordination layer. A single heavily active room remains an intentionally localized realtime workload, while other rooms can operate independently. Global limits such as Cloudflare account quotas, WebSocket capacity, R2 request/storage limits and Supabase connection/database limits remain deployment-level constraints rather than application-level shared-state bottlenecks.
+
 ## Security / authorization
 
 The Worker is the only authority for Telegram identity and Beat Room access.
