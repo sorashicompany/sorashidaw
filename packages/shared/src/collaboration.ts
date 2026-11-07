@@ -7,7 +7,7 @@ export type CollaborationOperationType =
   | "ADD_MIDI_CLIP" | "ADD_PATTERN_CLIP" | "ADD_LOOP_CLIP" | "SET_CLIP_CONTENT"
   | "SET_AUTOMATION" | "ADD_MARKER" | "UPDATE_MARKER" | "DELETE_MARKER"
   | "ADD_GROUP" | "UPDATE_GROUP" | "DELETE_GROUP" | "SET_GRID" | "SET_ZOOM"
-  | "SET_SYNTH_PARAMETER" | "SET_AUTOMATION";
+  | "SET_SYNTH_PARAMETER" | "SET_AUTOMATION" | "UPDATE_DRUM_CHANNEL";
 
 export type CollaborationOperation = {
   type: CollaborationOperationType;
