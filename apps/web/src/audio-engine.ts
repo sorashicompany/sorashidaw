@@ -64,3 +64,4 @@ export class RealAudioEngine {
     this.node?.port.postMessage({ type: "seek", step });
   }
 }
+\nfunction currentFrameFallback(context: AudioContext): number { return Math.floor(context.currentTime * context.sampleRate); }\n
