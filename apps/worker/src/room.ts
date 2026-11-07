@@ -4,6 +4,7 @@ import type { CollaborationEnvelope, CollaborationOperation, PresenceState } fro
 export interface RoomEnv { BEAT_ROOM: DurableObjectNamespace<BeatRoom>; }
 type Connection = { actorId: number; roomId: string; presence: PresenceState };
 const MAX_RECENT_OPERATIONS = 500;
+const MAX_OPERATION_PAYLOAD_BYTES = 128 * 1024;
 const MAX_PROJECT_VERSIONS = 50;
 const HISTORY_MIN_INTERVAL_MS = 5000;
 type ProjectVersion = { version: number; label: string; createdAt: string; state: unknown; hash: string };
@@ -109,6 +110,10 @@ export class BeatRoom extends DurableObject<RoomEnv> {
     }
 
     const operation = value as CollaborationOperation;
+    if (JSON.stringify(operation).length > MAX_OPERATION_PAYLOAD_BYTES) {
+      ws.send(JSON.stringify({ type: "sync.error", opId: operation?.opId, message: "Operation payload too large" }));
+      return;
+    }
     if (!operation || operation.roomId !== connection.roomId || operation.actorId !== connection.actorId || typeof operation.opId !== "string") {
       ws.send(JSON.stringify({ type: "sync.error", opId: operation?.opId, message: "Invalid operation identity" }));
       return;
