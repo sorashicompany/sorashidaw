@@ -672,7 +672,7 @@ export default function App() {
     for (const event of events) {
       if (event.type !== "sync.operation") continue;
       const op=event.operation;
-      if (op.actorId === userId)
+      if (op.actorId === userId) continue;
       if (op.type==="SET_MIXER_PARAMETER") setMixer(current=>current.map(ch=>ch.id===op.targetId ? {...ch,[String(op.payload.key)]:op.payload.value} : ch));
       if (op.type==="ADD_MIXER_CHANNEL" && op.payload.channel) setMixer(current=>current.some(ch=>ch.id===op.targetId)?current:[...current.filter(ch=>ch.id!=="master"),op.payload.channel as MixerChannel,current.find(ch=>ch.id==="master")!]);
     }
