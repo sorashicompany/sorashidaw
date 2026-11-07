@@ -38,8 +38,16 @@ export async function renderWav(project: ExportProject, target: ExportTarget): P
   const allowedTrackIds = new Set(target.trackIds ?? []);
   const isMaster = target.kind === "master";
   const mixerById = new Map(project.mixer.map(item => [item.id, item]));
-  const trackById = new Map(project.tracks.map(item => [item.id, item]));
-  const shouldRenderTrack = (trackId: string) => isMaster || target.kind !== "track" || allowedTrackIds.has(trackId);
+  const targetMixerId = target.mixerIds?.[0];
+  const targetMixer = targetMixerId ? mixerById.get(targetMixerId) : undefined;
+  const shouldRenderTrack = (trackId: string) => {
+    if (isMaster) return true;
+    if (target.kind === "track") return allowedTrackIds.has(trackId);
+    if (!targetMixerId) return false;
+    if (trackId === targetMixerId) return true;
+    const mixer = mixerById.get(trackId);
+    return mixer?.busId === targetMixerId || mixer?.route === targetMixerId || mixer?.route === targetMixer?.name;
+  };
 
   const scheduleTone = (pitch: number, startBeat: number, lengthBeat: number, velocity: number, destination: AudioNode) => {
     const start = startBeat * 60 / project.bpm;
@@ -122,18 +130,6 @@ export async function renderWav(project: ExportProject, target: ExportTarget): P
     }
   }
 
-  // Master renders the complete local project. Group/bus export currently renders the
-  // channels assigned to that mixer node when their track ids are available.
-  if (target.kind === "group" && target.mixerIds?.length) {
-    const wanted = target.mixerIds[0];
-    for (const track of project.tracks) {
-      const mixer = mixerById.get(track.id);
-      if (mixer?.route !== wanted && mixer?.busId !== wanted && track.id !== wanted) {
-        // The project's routing model is metadata-only at this stage.
-        // Keep the target deterministic instead of inventing routing.
-      }
-    }
-  }
 
   const rendered = await context.startRendering();
   return audioBufferToWav(rendered);
