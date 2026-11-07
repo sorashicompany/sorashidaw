@@ -5,6 +5,7 @@ import "./styles.css";
 const windows = ["Playlist", "Step Sequencer", "Piano Roll", "Mixer", "Browser", "Synthesizer", "Effects"] as const;
 type WindowName = (typeof windows)[number];
 type ClipKind = "audio" | "midi" | "pattern" | "loop";
+type DrumChannel = { id: string; name: string; sample: string; steps: boolean[]; volume: number; pan: number; mute: boolean; solo: boolean; velocity: number; };
 
 type Track = {
   id: string;
@@ -28,6 +29,7 @@ type Marker = { id: string; position: number; label: string };
 type AutomationPoint = { id: string; position: number; value: number };
 
 const GRID = 16;
+const DRUM_SAMPLES = ["Deep Kick", "Snare Tight", "Clap Wide", "Closed Hat", "Open Hat", "Perc Click", "808 Sub", "FX Noise"];
 const INITIAL_TRACKS: Track[] = [
   { id: "drums", name: "DRUMS", color: "violet", clips: [
     { id: "drums-1", name: "Kit Loop", kind: "pattern", start: 0, length: 16, lane: 0 },
@@ -59,8 +61,21 @@ export default function App() {
   const [zoom, setZoom] = useState(1);
   const [snap, setSnap] = useState(4);
   const [grouped, setGrouped] = useState(false);
-  const [steps, setSteps] = useState([0, 3, 4, 7, 8, 10, 12, 15]);
-  const { state: roomState, presence, updatePresence, publishCursor, publish, events } = useBeatRoom();\n  const appliedOps = useRef(new Set<string>());
+  const [patternLength, setPatternLength] = useState(16);
+  const [drumChannels, setDrumChannels] = useState<DrumChannel[]>([
+    { id: "kick", name: "Kick", sample: "Deep Kick", steps: [true,false,false,false,true,false,false,false,true,false,false,false,true,false,false,false], volume: 0, pan: 0, mute: false, solo: false, velocity: 100 },
+    { id: "snare", name: "Snare", sample: "Snare Tight", steps: [false,false,false,false,true,false,false,false,false,false,false,false,true,false,false,false], volume: -3, pan: 0, mute: false, solo: false, velocity: 100 },
+    { id: "clap", name: "Clap", sample: "Clap Wide", steps: Array(16).fill(false), volume: -6, pan: 0, mute: false, solo: false, velocity: 92 },
+    { id: "ch", name: "Closed Hat", sample: "Closed Hat", steps: [false,false,true,false,false,false,true,false,false,false,true,false,false,false,true,false], volume: -8, pan: 0, mute: false, solo: false, velocity: 82 },
+    { id: "oh", name: "Open Hat", sample: "Open Hat", steps: [false,false,false,false,false,false,false,false,false,false,false,false,false,true,false,false], volume: -9, pan: 0, mute: false, solo: false, velocity: 90 },
+    { id: "perc", name: "Percussion", sample: "Perc Click", steps: [false,false,false,true,false,false,false,false,false,true,false,false,false,false,true,false], volume: -10, pan: -12, mute: false, solo: false, velocity: 76 },
+    { id: "808", name: "808", sample: "808 Sub", steps: [true,false,false,false,false,false,false,false,true,false,false,false,false,false,false,false], volume: -4, pan: 0, mute: false, solo: false, velocity: 105 },
+    { id: "fx", name: "FX", sample: "FX Noise", steps: Array(16).fill(false), volume: -12, pan: 8, mute: false, solo: false, velocity: 70 },
+  ]);
+  const [activePattern, setActivePattern] = useState("Pattern 01");
+  const [patternNames, setPatternNames] = useState(["Pattern 01", "Pattern 02"]);
+  const { state: roomState, presence, updatePresence, publishCursor, publish, events } = useBeatRoom();
+  const appliedOps = useRef(new Set<string>());
 
   useEffect(() => { updatePresence(active); }, [active, updatePresence]);
 
@@ -150,6 +165,35 @@ export default function App() {
     const marker: Marker = { id: crypto.randomUUID(), position: Math.max(0, bar - 1) * 4, label: "MARKER" };
     setMarkers(current => [...current, marker]);
     emit("ADD_MARKER", marker.id, marker);
+  }
+
+  function toggleDrumStep(channelId: string, step: number) {
+    setDrumChannels(current => current.map(channel => {
+      if (channel.id !== channelId) return channel;
+      const next = [...channel.steps];
+      next[step] = !next[step];
+      emit("CHANGE_PATTERN", channelId, { pattern: activePattern, step, enabled: next[step], length: patternLength }, "drums");
+      return { ...channel, steps: next };
+    }));
+  }
+
+  function updateDrumChannel(channelId: string, patch: Partial<DrumChannel>) {
+    setDrumChannels(current => current.map(channel => channel.id === channelId ? { ...channel, ...patch } : channel));
+    emit("UPDATE_DRUM_CHANNEL", channelId, { pattern: activePattern, ...patch }, "drums");
+  }
+
+  function addPattern() {
+    const name = "Pattern " + String(patternNames.length + 1).padStart(2, "0");
+    setPatternNames(current => [...current, name]);
+    setActivePattern(name);
+    emit("ADD_PATTERN_CLIP", crypto.randomUUID(), { name, length: patternLength, pattern: "drums" }, "drums");
+  }
+
+  function placePatternInPlaylist() {
+    const clip: Clip = { id: crypto.randomUUID(), name: activePattern, kind: "pattern", start: snap, length: patternLength, lane: 0 };
+    setTracks(current => current.map(track => track.id === "drums" ? { ...track, clips: [...track.clips, clip] } : track));
+    setSelectedClip(clip.id);
+    emit("ADD_PATTERN_CLIP", clip.id, clip, "drums");
   }
 
   function toggleStep(step: number) {
@@ -262,8 +306,8 @@ export default function App() {
 
           <div className="lower-workspace">
             <Panel title="Step Sequencer" subtitle="Drums · 16 steps" className="sequencer-panel">
-              <div className="step-grid">{["KICK", "SNARE", "HAT"].map((name, row) => <div className="step-row" key={name}><span>{name}</span><div>{Array.from({ length: 16 }, (_, index) => { const activeStep = row === 0 ? steps.includes(index) : row === 1 ? [4, 12].includes(index) : [2, 6, 10, 14].includes(index); return <button key={index} className={activeStep ? "step on" : "step"} onClick={() => row === 0 && toggleStep(index)} />; })}</div></div>)}</div>
-              <div className="panel-footer"><span>{steps.length} kick hits</span><span>Velocity 100</span></div>
+              <div className="drum-toolbar"><div className="pattern-selector">{patternNames.map(name => <button key={name} className={activePattern === name ? "active" : ""} onClick={() => setActivePattern(name)}>{name}</button>)}<button onClick={addPattern}>+</button></div><div className="pattern-length">{[4,8,16,32,64].map(length => <button key={length} className={patternLength === length ? "active" : ""} onClick={() => { setPatternLength(length); emit("CHANGE_PATTERN", activePattern, { length }, "drums"); }}>{length}</button>)}</div><button className="place-pattern" onClick={placePatternInPlaylist}>Place in Playlist</button></div>
+<div className="drum-grid"><div className="drum-head"><span>CHANNEL</span><span>SAMPLE</span><span>VOL</span><span>PAN</span><span>M/S</span><span>VELOCITY</span><span>STEPS</span></div>{drumChannels.map(channel => <div className="drum-row" key={channel.id}><div className="drum-channel"><span className="channel-led" /><strong>{channel.name}</strong></div><select value={channel.sample} onChange={event => updateDrumChannel(channel.id, { sample: event.target.value })}>{DRUM_SAMPLES.map(sample => <option key={sample}>{sample}</option>)}</select><input className="mini-number" value={channel.volume} type="number" min="-60" max="6" onChange={event => updateDrumChannel(channel.id, { volume: Number(event.target.value) })}/><input className="mini-pan" value={channel.pan} type="range" min="-100" max="100" onChange={event => updateDrumChannel(channel.id, { pan: Number(event.target.value) })}/><div className="ms"><button className={channel.mute ? "on" : ""} onClick={() => updateDrumChannel(channel.id, { mute: !channel.mute })}>M</button><button className={channel.solo ? "on" : ""} onClick={() => updateDrumChannel(channel.id, { solo: !channel.solo })}>S</button></div><input className="velocity" value={channel.velocity} type="range" min="1" max="127" onChange={event => updateDrumChannel(channel.id, { velocity: Number(event.target.value) })}/><div className="steps">{Array.from({ length: patternLength }, (_, index) => <button key={index} className={channel.steps[index] ? "step on" : "step"} onClick={() => toggleDrumStep(channel.id, index)} />)}</div></div>)}</div><div className="panel-footer"><span>{drumChannels[0]?.steps.slice(0, patternLength).filter(Boolean).length ?? 0} kick hits</span><span>{patternLength} steps · {activePattern}</span></div>
             </Panel>
             <Panel title="Piano Roll" subtitle="Bass · C minor" className="piano-panel">
               <div className="piano-roll"><div className="piano-keys">{["C", "B", "A", "G", "F", "E", "D"].map(key => <span key={key}>{key}</span>)}</div><div className="note-grid">{Array.from({ length: 12 }, (_, index) => <button key={index} className={"note note-" + index} onClick={() => emit("ADD_NOTE", "bass-note-" + index, { pitch: 60 + index, bar }, "bass")} />)}</div></div>
