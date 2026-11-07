@@ -5,7 +5,8 @@ import "./styles.css";
 const windows = ["Playlist", "Step Sequencer", "Piano Roll", "Mixer", "Browser", "Synthesizer", "Effects"] as const;
 type WindowName = (typeof windows)[number];
 type ClipKind = "audio" | "midi" | "pattern" | "loop";
-type DrumChannel = { id: string; name: string; sample: string; steps: boolean[]; volume: number; pan: number; mute: boolean; solo: boolean; velocity: number; };
+type DrumChannel = { id: string; name: string; sample: string; sampleId?: string; steps: boolean[]; volume: number; pan: number; mute: boolean; solo: boolean; velocity: number; };
+type DrumAsset = { id: string; name: string; category: string; folder: string; mimeType: string; size: number; previewUrl?: string; };
 
 type Track = {
   id: string;
@@ -78,6 +79,22 @@ export default function App() {
   const appliedOps = useRef(new Set<string>());
 
   useEffect(() => { updatePresence(active); }, [active, updatePresence]);
+
+  useEffect(() => {
+    if (!roomTicket || !chatId) return;
+    fetch("/api/room/assets?chatId=" + encodeURIComponent(String(chatId)) + "&ticket=" + encodeURIComponent(roomTicket))
+      .then(response => response.ok ? response.json() as Promise<{ assets: DrumAsset[] }> : Promise.reject(new Error("asset list failed")))
+      .then(result => setDrumAssets(result.assets))
+      .catch(() => undefined);
+  }, [roomTicket, chatId]);
+
+  useEffect(() => {
+    for (const event of events) {
+      if (event.type !== "sync.operation" || event.operation.type !== "ADD_DRUM_SAMPLE") continue;
+      const asset = event.operation.payload.asset as DrumAsset | undefined;
+      if (asset && !drumAssets.some(item => item.id === asset.id)) setDrumAssets(current => [...current, asset]);
+    }
+  }, [events]);
 
   useEffect(() => {
     if (!playing) return;
@@ -177,6 +194,20 @@ export default function App() {
     }));
   }
 
+  async function uploadDrumSample(file: File) {
+    if (!roomTicket || !chatId || !file.name.toLowerCase().endsWith(".wav")) return;
+    const form = new FormData();
+    form.append("file", file);
+    form.append("category", assetCategory);
+    form.append("folder", assetCategory);
+    form.append("name", file.name.replace(/\\.wav$/i, ""));
+    const response = await fetch("/api/room/assets?chatId=" + encodeURIComponent(String(chatId)) + "&ticket=" + encodeURIComponent(roomTicket), { method: "POST", body: form });
+    if (!response.ok) return;
+    const result = await response.json() as { asset: DrumAsset };
+    setDrumAssets(current => [...current, result.asset]);
+    emit("ADD_DRUM_SAMPLE", result.asset.id, { asset: result.asset }, "drums");
+  }
+
   function updateDrumChannel(channelId: string, patch: Partial<DrumChannel>) {
     setDrumChannels(current => current.map(channel => channel.id === channelId ? { ...channel, ...patch } : channel));
     emit("UPDATE_DRUM_CHANNEL", channelId, { pattern: activePattern, ...patch }, "drums");
@@ -249,7 +280,7 @@ export default function App() {
           <div className="browser-search">⌕ <span>Search sounds</span></div>
           <div className="browser-section"><span>CLIP TYPE</span>{(["audio", "midi", "pattern", "loop"] as ClipKind[]).map(kind => <button key={kind} onClick={() => addClip(kind)}>+ {kind.toUpperCase()}</button>)}</div>
           <div className="browser-section"><span>PACKS</span>{["Drums", "Bass", "Keys", "Synths", "Textures"].map(item => <button key={item}>› {item}</button>)}</div>
-          <div className="browser-section sounds"><span>RECENT</span>{["Deep Kick", "Sub Bass 01", "Warm Piano", "Analog Pad", "Crisp Hat"].map(item => <button key={item} onDoubleClick={() => emit("ADD_SAMPLE", item, { name: item })}><b>♪</b>{item}</button>)}</div>
+          <div className="browser-section"><span>DRUM KIT <label className="kit-category"><select value={assetCategory} onChange={event => setAssetCategory(event.target.value)}>{["Kicks","Snares","Claps","Hats","Percussion","808","FX","Other"].map(category => <option key={category}>{category}</option>)}</select></label></span><input className="kit-upload" type="file" accept=".wav,audio/wav" multiple onChange={event => { for (const file of Array.from(event.target.files ?? [])) void uploadDrumSample(file); event.currentTarget.value = ""; }} />{drumAssets.filter(asset => asset.category === assetCategory).map(asset => <div className="drum-asset" key={asset.id} draggable onDragStart={event => event.dataTransfer.setData("application/x-sorashi-drum-asset", asset.id)}><span>♪</span><div><b>{asset.name}</b><small>{asset.folder || asset.category} · {(asset.size / 1024).toFixed(0)} KB</small></div>{asset.previewUrl && <audio controls preload="none" src={asset.previewUrl} />}</div>)}</div><div className="browser-section sounds"><span>RECENT</span>{["Deep Kick", "Sub Bass 01", "Warm Piano", "Analog Pad", "Crisp Hat"].map(item => <button key={item} onDoubleClick={() => emit("ADD_SAMPLE", item, { name: item })}><b>♪</b>{item}</button>)}</div>
         </aside>
 
         <section className="center-stage" onPointerMove={event => publishCursor(event.clientX, event.clientY, active)}>
@@ -307,7 +338,13 @@ export default function App() {
           <div className="lower-workspace">
             <Panel title="Step Sequencer" subtitle="Drums · 16 steps" className="sequencer-panel">
               <div className="drum-toolbar"><div className="pattern-selector">{patternNames.map(name => <button key={name} className={activePattern === name ? "active" : ""} onClick={() => setActivePattern(name)}>{name}</button>)}<button onClick={addPattern}>+</button></div><div className="pattern-length">{[4,8,16,32,64].map(length => <button key={length} className={patternLength === length ? "active" : ""} onClick={() => { setPatternLength(length); emit("CHANGE_PATTERN", activePattern, { length }, "drums"); }}>{length}</button>)}</div><button className="place-pattern" onClick={placePatternInPlaylist}>Place in Playlist</button></div>
-<div className="drum-grid"><div className="drum-head"><span>CHANNEL</span><span>SAMPLE</span><span>VOL</span><span>PAN</span><span>M/S</span><span>VELOCITY</span><span>STEPS</span></div>{drumChannels.map(channel => <div className="drum-row" key={channel.id}><div className="drum-channel"><span className="channel-led" /><strong>{channel.name}</strong></div><select value={channel.sample} onChange={event => updateDrumChannel(channel.id, { sample: event.target.value })}>{DRUM_SAMPLES.map(sample => <option key={sample}>{sample}</option>)}</select><input className="mini-number" value={channel.volume} type="number" min="-60" max="6" onChange={event => updateDrumChannel(channel.id, { volume: Number(event.target.value) })}/><input className="mini-pan" value={channel.pan} type="range" min="-100" max="100" onChange={event => updateDrumChannel(channel.id, { pan: Number(event.target.value) })}/><div className="ms"><button className={channel.mute ? "on" : ""} onClick={() => updateDrumChannel(channel.id, { mute: !channel.mute })}>M</button><button className={channel.solo ? "on" : ""} onClick={() => updateDrumChannel(channel.id, { solo: !channel.solo })}>S</button></div><input className="velocity" value={channel.velocity} type="range" min="1" max="127" onChange={event => updateDrumChannel(channel.id, { velocity: Number(event.target.value) })}/><div className="steps">{Array.from({ length: patternLength }, (_, index) => <button key={index} className={channel.steps[index] ? "step on" : "step"} onClick={() => toggleDrumStep(channel.id, index)} />)}</div></div>)}</div><div className="panel-footer"><span>{drumChannels[0]?.steps.slice(0, patternLength).filter(Boolean).length ?? 0} kick hits</span><span>{patternLength} steps · {activePattern}</span></div>
+<div className="drum-grid"><div className="drum-head"><span>CHANNEL</span><span>SAMPLE</span><span>VOL</span><span>PAN</span><span>M/S</span><span>VELOCITY</span><span>STEPS</span></div>{drumChannels.map(channel => <div className="drum-row" key={channel.id} onDragOver={event => event.preventDefault()} onDrop={event => { const id = event.dataTransfer.getData("application/x-sorashi-drum-asset"); const asset = drumAssets.find(item => item.id === id); if (asset) updateDrumChannel(channel.id, { sample: asset.name, sampleId: asset.id }); }}><div className="drum-channel"><span className="channel-led" /><strong>{channel.name}</strong></div><select value={channel.sampleId ? "asset:" + channel.sampleId : channel.sample} onChange={event => {
+  const value = event.target.value;
+  if (value.startsWith("asset:")) {
+    const asset = drumAssets.find(item => item.id === value.slice(6));
+    if (asset) updateDrumChannel(channel.id, { sample: asset.name, sampleId: asset.id });
+  } else updateDrumChannel(channel.id, { sample: value, sampleId: undefined });
+}}><optgroup label="Built-in">{DRUM_SAMPLES.map(sample => <option key={sample} value={sample}>{sample}</option>)}</optgroup><optgroup label="Room Drum Kit">{drumAssets.map(asset => <option key={asset.id} value={"asset:" + asset.id}>{asset.name}</option>)}</optgroup></select><input className="mini-number" value={channel.volume} type="number" min="-60" max="6" onChange={event => updateDrumChannel(channel.id, { volume: Number(event.target.value) })}/><input className="mini-pan" value={channel.pan} type="range" min="-100" max="100" onChange={event => updateDrumChannel(channel.id, { pan: Number(event.target.value) })}/><div className="ms"><button className={channel.mute ? "on" : ""} onClick={() => updateDrumChannel(channel.id, { mute: !channel.mute })}>M</button><button className={channel.solo ? "on" : ""} onClick={() => updateDrumChannel(channel.id, { solo: !channel.solo })}>S</button></div><input className="velocity" value={channel.velocity} type="range" min="1" max="127" onChange={event => updateDrumChannel(channel.id, { velocity: Number(event.target.value) })}/><div className="steps">{Array.from({ length: patternLength }, (_, index) => <button key={index} className={channel.steps[index] ? "step on" : "step"} onClick={() => toggleDrumStep(channel.id, index)} />)}</div></div>)}</div><div className="panel-footer"><span>{drumChannels[0]?.steps.slice(0, patternLength).filter(Boolean).length ?? 0} kick hits</span><span>{patternLength} steps · {activePattern}</span></div>
             </Panel>
             <Panel title="Piano Roll" subtitle="Bass · C minor" className="piano-panel">
               <div className="piano-roll"><div className="piano-keys">{["C", "B", "A", "G", "F", "E", "D"].map(key => <span key={key}>{key}</span>)}</div><div className="note-grid">{Array.from({ length: 12 }, (_, index) => <button key={index} className={"note note-" + index} onClick={() => emit("ADD_NOTE", "bass-note-" + index, { pitch: 60 + index, bar }, "bass")} />)}</div></div>
