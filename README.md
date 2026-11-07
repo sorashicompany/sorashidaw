@@ -74,6 +74,29 @@ Beat Room realtime editing uses a Cloudflare Durable Object per verified Telegra
 - WebSocket authentication uses a short-lived Worker-signed room ticket derived from verified Telegram WebApp data; raw Telegram initData is not sent to the room WebSocket.
 - The Durable Object is the realtime coordination layer. Persistent project snapshots and event history remain a separate concern for Supabase and are intentionally not conflated with live transport.
 
+## Security / authorization
+
+The Worker is the only authority for Telegram identity and Beat Room access.
+
+- Telegram.WebApp.initData is verified server-side with the Bot token using the Telegram HMAC data-check algorithm and a freshness window.
+- initDataUnsafe is never used for authorization.
+- The signed room ticket binds telegramUserId and telegramChatId to the authenticated session and expires after 5 minutes.
+- Room APIs and the WebSocket verify the signed ticket before resolving a Durable Object.
+- The Durable Object name is derived from the verified Telegram chat ID, not from a frontend-selected room_id.
+- A client-supplied chatId is only a consistency check against the signed ticket; it cannot select a different room.
+- R2 asset keys are prefixed by the verified Telegram chat ID and are readable only after the same room authorization check.
+- Realtime operations are accepted only when roomId and actorId match the verified server-side room connection identity.
+- Presence and cursor messages are authenticated by the same room connection but have no project authorization effect.
+- There are deliberately no per-user musical permissions inside a Beat Room. Once server-side room access is established, every participant has the same full-edit capability over tracks, notes, samples, mixer, synth, effects, automation, transport and project settings.
+
+Authorization boundary:
+
+Telegram initData → Worker verification → signed room ticket → verified chat ID → Beat Room
+
+Beat Room membership/access = yes/no
+
+Musical object permissions inside an authorized room = unrestricted
+
 ## Telegram Bot
 
 The Worker includes a Telegram Bot integration alongside the Mini App.
