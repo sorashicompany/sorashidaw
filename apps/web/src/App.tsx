@@ -1292,4 +1292,15 @@ function icon(windowName: WindowName) { return ({ Playlist: "▤", "Step Sequenc
     }
   }, [events]);
 
+  useEffect(() => {
+    for (const event of events) {
+      if (event.type !== "sync.project.restore" || !event.state || typeof event.state !== "object") continue;
+      applyProjectSnapshot(event.state);
+      undoStackRef.current = [];
+      redoStackRef.current = [];
+      setUndoDepth(0);
+      setRedoDepth(0);
+    }
+  }, [events]);
+
 
