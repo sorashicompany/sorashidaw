@@ -28,7 +28,10 @@ export function useBeatRoom() {
   const eventBufferRef = useRef<CollaborationEnvelope[]>([]);
   const eventFlushTimerRef = useRef<number | undefined>(undefined);
   const [presence, setPresence] = useState<import("../../../packages/shared/src/collaboration").PresenceState[]>([]);
-  const identityRef = useRef<{ userId: number; chatId: number } | null>(null);\n  const ticketRef = useRef<string | null>(null);\n  const [roomTicket, setRoomTicket] = useState<string | null>(null);\n  const [chatId, setChatId] = useState<number | null>(null);
+  const identityRef = useRef<{ userId: number; chatId: number } | null>(null);
+  const ticketRef = useRef<string | null>(null);
+  const [roomTicket, setRoomTicket] = useState<string | null>(null);
+  const [chatId, setChatId] = useState<number | null>(null);
   const [serverOffsetMs, setServerOffsetMs] = useState(0);
   const [transport, setTransport] = useState<RoomTransportState | null>(null);
   const [projectState, setProjectState] = useState<unknown | null>(null);
@@ -58,7 +61,10 @@ export function useBeatRoom() {
         setState("connecting");
         const auth = await authenticate();
         if (closed) return;
-        identityRef.current = { userId: auth.user.id, chatId: auth.chat.id };\n        ticketRef.current = auth.roomTicket;\n        setRoomTicket(auth.roomTicket);\n        setChatId(auth.chat.id);
+        identityRef.current = { userId: auth.user.id, chatId: auth.chat.id };
+        ticketRef.current = auth.roomTicket;
+        setRoomTicket(auth.roomTicket);
+        setChatId(auth.chat.id);
         try {
           const stateResponse = await fetch("/api/room/state?chatId=" + encodeURIComponent(String(auth.chat.id)) + "&ticket=" + encodeURIComponent(auth.roomTicket));
           if (stateResponse.ok) {
