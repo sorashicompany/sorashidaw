@@ -4,7 +4,7 @@ import { createRoomTicket, verifyRoomTicket } from "./room-ticket";
 import { sendBeatSaved, sendExportedFile, sendInvite, sendOpenBeatStudio, getGroupInviteLink } from "./telegram-bot";
 import { supabaseWorkerCall } from "./supabase";
 
-export interface Env { TELEGRAM_BOT_TOKEN: string; BEAT_ROOM: DurableObjectNamespace<BeatRoom>; DRUM_KITS?: R2Bucket; MINI_APP_URL: string; SUPABASE_URL: string; SUPABASE_PUBLISHABLE_KEY: string; SUPABASE_WORKER_SIGNING_SECRET: string; TELEGRAM_WEBHOOK_SECRET?: string; BOT_WEBHOOK_SECRET?: string; BOT_USERNAME?: string; }
+export interface Env { TELEGRAM_BOT_TOKEN: string; BEAT_ROOM: DurableObjectNamespace<BeatRoom>; DRUM_KITS?: R2Bucket; ASSETS: Fetcher; MINI_APP_URL: string; SUPABASE_URL: string; SUPABASE_PUBLISHABLE_KEY: string; SUPABASE_WORKER_SIGNING_SECRET: string; TELEGRAM_WEBHOOK_SECRET?: string; BOT_WEBHOOK_SECRET?: string; BOT_USERNAME?: string; }
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -20,7 +20,7 @@ export default {
     if (request.method === "POST" && url.pathname === "/api/bot/export") return botExport(request, env);
     if (request.method === "POST" && url.pathname === "/api/bot/saved") return botSaved(request, env);
     if (request.method === "GET" && url.pathname === "/health") return json({ ok: true, service: "nexoradaw-api" });
-    return json({ error: "Not found" }, 404);
+    return env.ASSETS.fetch(request);
   },
 };
 export { BeatRoom };
