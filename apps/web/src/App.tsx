@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useBeatRoom } from "./collaboration";
 import "./styles.css";
 import { WAVETABLES, SYNTH_PRESETS, type SynthState } from "../../../packages/shared/src/synth";
+import { BUILT_IN_EFFECTS, defaultEffectParams, type BuiltInEffectType, type EffectInstance } from "../../../packages/shared/src/effects";
+import { AudioFxEngine } from "./audio-fx";
 type MidiCc = { controller: number; value: number; channel: number };
 type MixerChannel = { id:string; name:string; type:"channel"|"bus"|"group"|"send"|"master"; volume:number; pan:number; mute:boolean; solo:boolean; peak:number; route:string; inserts:string[]; sends:Record<string,number>; busId?:string; };
 
@@ -40,6 +42,8 @@ type AutomationPoint = { id: string; position: number; value: number };
 
 const GRID = 16;
 const DRUM_SAMPLES = ["Deep Kick", "Snare Tight", "Clap Wide", "Closed Hat", "Open Hat", "Perc Click", "808 Sub", "FX Noise"];
+const INITIAL_EFFECTS: EffectInstance[] = BUILT_IN_EFFECTS.slice(0, 6).map((item, index) => ({ id: "fx-" + index, type: item.type, name: item.name, bypass: false, mix: 100, params: defaultEffectParams(item.type) }));
+
 const INITIAL_MIXER: MixerChannel[] = [
  {id:"drums",name:"Drums",type:"channel",volume:-1.2,pan:0,mute:false,solo:false,peak:-6,route:"Drum Bus",inserts:["Transient","Saturator"],sends:{A:-18,B:-24},busId:"drum-bus"},
  {id:"bass",name:"Bass",type:"channel",volume:-3,pan:0,mute:false,solo:false,peak:-9,route:"Music Bus",inserts:["EQ","Compressor"],sends:{A:-24,B:-30},busId:"music-bus"},
@@ -355,6 +359,40 @@ export default function App() {
     }).catch(() => setMidiEnabled(false));
   }
 
+  function addEffect(type: BuiltInEffectType) {
+    const definition = BUILT_IN_EFFECTS.find(item => item.type === type);
+    if (!definition) return;
+    const effect: EffectInstance = { id: crypto.randomUUID(), type, name: definition.name, bypass: false, mix: 100, params: defaultEffectParams(type) };
+    setEffects(current => [...current, effect]);
+    publish("ADD_EFFECT", effect.id, { effect }, "master");
+  }
+
+  function updateEffect(id: string, patch: Partial<EffectInstance>) {
+    setEffects(current => current.map(effect => effect.id === id ? { ...effect, ...patch } : effect));
+    for (const [key, value] of Object.entries(patch)) publish("SET_EFFECT_PARAMETER", id, { key, value }, "master");
+  }
+
+  function updateEffectParam(id: string, key: string, value: unknown) {
+    setEffects(current => current.map(effect => effect.id === id ? { ...effect, params: { ...effect.params, [key]: value } } : effect));
+    publish("SET_EFFECT_PARAMETER", id, { key: "params."+key, value }, "master");
+  }
+
+  async function auditionEffects() {
+    if (!audioFxRef.current) audioFxRef.current = new AudioFxEngine();
+    const engine = audioFxRef.current;
+    await engine.resume();
+    const osc = engine.context.createOscillator();
+    const gain = engine.context.createGain();
+    osc.type = "sawtooth";
+    osc.frequency.value = 110;
+    gain.gain.setValueAtTime(0.0001, engine.context.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.12, engine.context.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, engine.context.currentTime + 1.8);
+    engine.attachSource("effects-audition", osc, effects, engine.context.destination);
+    osc.start();
+    osc.stop(engine.context.currentTime + 1.85);
+  }
+
   function setSynthParameter(path: string, value: unknown) {
     setSynth(current => {
       const next = structuredClone(current) as SynthState;
@@ -544,6 +582,16 @@ export default function App() {
       <Panel title="Mixer" subtitle="channels · buses · groups · sends · master" className="full-mixer-panel">
 <div className="mixer-toolbar"><button onClick={()=>addMixerChannel("channel")}>+ CHANNEL</button><button onClick={()=>addMixerChannel("bus")}>+ BUS</button><button onClick={()=>addMixerChannel("group")}>+ GROUP</button><button onClick={()=>addMixerChannel("send")}>+ SEND</button><span>{mixer.length} strips</span></div>
 <div className="full-mixer">{mixer.map(ch=><div className={"mixer-strip "+ch.type} key={ch.id}><div className="strip-head"><b>{ch.name}</b><small>{ch.type}</small></div><div className="meter"><i style={{height:Math.max(3,Math.min(100,(60+ch.peak)*1.5))+"%"}}/></div><input className="fader" type="range" min="-60" max="6" step=".1" value={ch.volume} onChange={e=>updateMixer(ch.id,{volume:Number(e.target.value)})}/><div className="strip-db">{ch.volume.toFixed(1)} dB</div><input type="range" min="-100" max="100" value={ch.pan} onChange={e=>updateMixer(ch.id,{pan:Number(e.target.value)})}/><div className="strip-buttons"><button className={ch.mute?"on":""} onClick={()=>updateMixer(ch.id,{mute:!ch.mute})}>M</button><button className={ch.solo?"on":""} onClick={()=>updateMixer(ch.id,{solo:!ch.solo})}>S</button></div><select value={ch.route} onChange={e=>updateMixer(ch.id,{route:e.target.value})}>{mixer.filter(x=>x.type==="bus"||x.type==="master").map(x=><option key={x.id}>{x.name}</option>)}</select><div className="insert-list">{ch.inserts.map((fx,i)=><button key={i} onClick={()=>{const inserts=ch.inserts.filter((_,j)=>j!==i);updateMixer(ch.id,{inserts})}}>{fx} ×</button>)}<button onClick={()=>updateMixer(ch.id,{inserts:[...ch.inserts,"EQ"]})}>+ FX</button></div><div className="send-list">{Object.entries(ch.sends).map(([send,value])=><label key={send}>{send}<input type="range" min="-60" max="0" value={value} onChange={e=>updateMixer(ch.id,{sends:{...ch.sends,[send]:Number(e.target.value)}})}/></label>)}</div></div>)}</div>
+</Panel>
+<Panel title="Effects" subtitle="real-time Web Audio processing · shared rack" className="effects-panel">
+  <div className="effects-toolbar"><button onClick={()=>void auditionEffects()}>▶ TEST AUDIO</button><span>{effects.length} inserts · Web Audio DSP</span></div>
+  <div className="effect-browser">{BUILT_IN_EFFECTS.map(item=><button key={item.type} onClick={()=>addEffect(item.type)}>{item.name}</button>)}</div>
+  <div className="effect-rack">{effects.map(effect=><div className={"effect-card "+(effect.bypass?"bypassed":"")} key={effect.id}>
+    <div className="effect-head"><b>{effect.name}</b><span>{effect.type}</span><button onClick={()=>updateEffect(effect.id,{bypass:!effect.bypass})}>{effect.bypass?"BYP":"ON"}</button><button onClick={()=>{setEffects(current=>current.filter(item=>item.id!==effect.id));publish("REMOVE_EFFECT",effect.id,{}, "master")}}>×</button></div>
+    <div className="effect-params">
+      {Object.entries(effect.params).filter(([,value])=>typeof value==="number").slice(0,7).map(([key,value])=><label key={key}><span>{key.replace(/([A-Z])/g," $1")}</span><input type="range" min={key.toLowerCase().includes("freq")||key.toLowerCase().includes("cutoff")?20:-60} max={key.toLowerCase().includes("freq")||key.toLowerCase().includes("cutoff")?20000:100} step={key.toLowerCase().includes("freq")||key.toLowerCase().includes("cutoff")?1:0.1} value={Number(value)} onChange={event=>updateEffectParam(effect.id,key,Number(event.target.value))}/><b>{Number(value).toFixed(2)}</b></label>)}
+    </div>
+  </div>)}</div>
 </Panel>
 <footer className="bottom-dock">
         <div className="mixer-title"><span>MIXER</span><small>5 channels</small></div>
