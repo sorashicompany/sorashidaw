@@ -1,0 +1,12 @@
+{
+  "name": "@sorashidaw/worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20261105.0",
+    "typescript": "^5.9.0"
+  }
+}
