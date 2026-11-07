@@ -889,7 +889,7 @@ export default function App() {
             {filteredBrowserItems.map(item => <div key={item.id} className="browser-item" draggable onDragStart={event => dragBrowserItem(event, item)}>
               <span className="browser-item-icon">{item.kind === "sample" ? "♪" : item.kind === "preset" ? "◈" : item.kind === "wavetable" ? "∿" : item.kind === "effect" ? "ƒx" : item.kind === "instrument" ? "⌁" : item.kind === "project" ? "▣" : "◆"}</span>
               <div className="browser-item-main"><b>{item.name}</b><small>{item.folder}</small></div>
-              {item.previewUrl ? <audio controls preload="none" src={item.previewUrl} onClick={event => event.stopPropagation()} /> : item.kind === "sample" ? <button className="preview-button" title="Preview" onClick={() => ensureAudioEngine().previewTone?.(440)}>▶</button> : null}
+              {item.previewUrl ? <audio controls preload="none" src={item.previewUrl} onClick={event => event.stopPropagation()} /> : item.kind === "sample" ? <span className="preview-button" title="Preview unavailable for built-in item">▶</span> : null}
             </div>)}
             {!filteredBrowserItems.length && <div className="browser-empty">Nothing found</div>}
           </div>
