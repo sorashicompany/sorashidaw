@@ -45,6 +45,9 @@ alter table public.beat_rooms enable row level security;
 alter table public.beat_room_members enable row level security;
 alter table public.beat_projects enable row level security;
 
+-- There is intentionally no role/permission column on beat_room_members.
+-- Membership is the only room-level authorization fact: every participant
+-- receives the same full-edit capability over the shared project.
 -- The unique Telegram chat ID is the durable isolation boundary.
 -- Creation/resolution will be performed atomically by the trusted API layer.
 -- No browser session can choose another chat's room ID.
