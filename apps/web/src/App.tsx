@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useBeatRoom } from "./collaboration";
 import "./styles.css";
 
@@ -60,7 +60,7 @@ export default function App() {
   const [snap, setSnap] = useState(4);
   const [grouped, setGrouped] = useState(false);
   const [steps, setSteps] = useState([0, 3, 4, 7, 8, 10, 12, 15]);
-  const { state: roomState, presence, updatePresence, publishCursor, publish } = useBeatRoom();
+  const { state: roomState, presence, updatePresence, publishCursor, publish, events } = useBeatRoom();\n  const appliedOps = useRef(new Set<string>());
 
   useEffect(() => { updatePresence(active); }, [active, updatePresence]);
 
