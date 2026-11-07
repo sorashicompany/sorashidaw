@@ -4,6 +4,9 @@ import type { CollaborationEnvelope, CollaborationOperation, PresenceState } fro
 export interface RoomEnv { BEAT_ROOM: DurableObjectNamespace<BeatRoom>; }
 type Connection = { actorId: number; roomId: string; presence: PresenceState };
 const MAX_RECENT_OPERATIONS = 500;
+const MAX_PROJECT_VERSIONS = 50;
+const HISTORY_MIN_INTERVAL_MS = 5000;
+type ProjectVersion = { version: number; label: string; createdAt: string; state: unknown; hash: string };
 
 export class BeatRoom extends DurableObject<RoomEnv> {
   async fetch(request: Request): Promise<Response> {
@@ -42,14 +45,44 @@ export class BeatRoom extends DurableObject<RoomEnv> {
     return { state: state ?? null, version, updatedAt };
   }
 
-  async saveProjectState(state: unknown, clientVersion?: number): Promise<{ version: number; updatedAt: string }> {
+  async saveProjectState(state: unknown, clientVersion?: number): Promise<{ version: number; updatedAt: string; historyVersion: number | null }> {
     const current = (await this.ctx.storage.get<number>("project-version")) ?? 0;
     const version = Math.max(current + 1, Number(clientVersion ?? 0));
     const updatedAt = new Date().toISOString();
+    const hash = await this.hashState(state);
+    const history = (await this.ctx.storage.get<ProjectVersion[]>("project-history")) ?? [];
+    const last = history[history.length - 1];
+    const shouldVersion = !last || last.hash !== hash || Date.parse(updatedAt) - Date.parse(last.createdAt) >= HISTORY_MIN_INTERVAL_MS;
+    let historyVersion: number | null = last?.version ?? null;
     await this.ctx.storage.put("project-state", state);
     await this.ctx.storage.put("project-version", version);
     await this.ctx.storage.put("project-updated-at", updatedAt);
-    return { version, updatedAt };
+    if (shouldVersion) {
+      historyVersion = (last?.version ?? 0) + 1;
+      history.push({ version: historyVersion, label: "Beat v" + historyVersion, createdAt: updatedAt, state: structuredClone(state), hash });
+      await this.ctx.storage.put("project-history", history.slice(-MAX_PROJECT_VERSIONS));
+    }
+    return { version, updatedAt, historyVersion };
+  }
+
+  async getProjectHistory(): Promise<Array<{ version: number; label: string; createdAt: string }>> {
+    const history = (await this.ctx.storage.get<ProjectVersion[]>("project-history")) ?? [];
+    return history.map(({ state: _state, hash: _hash, ...meta }) => meta);
+  }
+
+  async restoreProjectVersion(version: number): Promise<{ version: number; restoredFrom: number; updatedAt: string }> {
+    const history = (await this.ctx.storage.get<ProjectVersion[]>("project-history")) ?? [];
+    const target = history.find(item => item.version === version);
+    if (!target) throw new Error("Project version not found");
+    const restored = await this.saveProjectState(structuredClone(target.state));
+    const updatedAt = new Date().toISOString();
+    return { version: restored.historyVersion ?? version, restoredFrom: version, updatedAt };
+  }
+
+  private async hashState(state: unknown): Promise<string> {
+    const bytes = new TextEncoder().encode(JSON.stringify(state));
+    const digest = await crypto.subtle.digest("SHA-256", bytes);
+    return Array.from(new Uint8Array(digest)).map(byte => byte.toString(16).padStart(2, "0")).join("");
   }
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
