@@ -29,6 +29,7 @@ export class BeatRoom extends DurableObject<RoomEnv> {
     }
 
     const current = this.currentPresence();
+    server.send(JSON.stringify({ type: "sync.clock", serverTimeMs: Date.now() } satisfies CollaborationEnvelope));
     server.send(JSON.stringify({ type: "sync.presence.snapshot", sequence: 0, presence: current } satisfies CollaborationEnvelope));
     this.broadcast({ type: "sync.presence", sequence: 0, presence } satisfies CollaborationEnvelope, server);
     return new Response(null, { status: 101, webSocket: client });
