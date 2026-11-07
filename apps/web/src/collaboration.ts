@@ -25,6 +25,8 @@ export function useBeatRoom() {
   const sequenceRef = useRef(0);
   const [state, setState] = useState<RoomConnectionState>("offline");
   const [events, setEvents] = useState<CollaborationEnvelope[]>([]);
+  const eventBufferRef = useRef<CollaborationEnvelope[]>([]);
+  const eventFlushTimerRef = useRef<number | undefined>(undefined);
   const [presence, setPresence] = useState<import("../../../packages/shared/src/collaboration").PresenceState[]>([]);
   const identityRef = useRef<{ userId: number; chatId: number } | null>(null);\n  const ticketRef = useRef<string | null>(null);\n  const [roomTicket, setRoomTicket] = useState<string | null>(null);\n  const [chatId, setChatId] = useState<number | null>(null);
   const [serverOffsetMs, setServerOffsetMs] = useState(0);
@@ -102,7 +104,15 @@ export function useBeatRoom() {
             }
             if (message.type === "sync.presence") setPresence(prev => { const next = prev.filter(p => p.actorId !== message.presence.actorId); return [...next, message.presence]; });
             if (message.type === "sync.cursor") setPresence(prev => prev.map(p => p.actorId === message.actorId ? { ...p, cursor: message.cursor, area: message.area, status: "online" } : p));
-            setEvents(prev => [...prev.slice(-199), message]);
+            if (message.type === "sync.presence" || message.type === "sync.presence.snapshot" || message.type === "sync.cursor" || message.type === "sync.clock") return;
+            eventBufferRef.current.push(message);
+            if (eventFlushTimerRef.current === undefined) {
+              eventFlushTimerRef.current = window.setTimeout(() => {
+                eventFlushTimerRef.current = undefined;
+                const batch = eventBufferRef.current.splice(0);
+                if (batch.length) setEvents(prev => [...prev, ...batch].slice(-200));
+              }, 16);
+            }
           } catch {
             // Ignore malformed server messages without breaking the room connection.
           }
@@ -129,6 +139,8 @@ export function useBeatRoom() {
       socketRef.current = null;
     };
   }, [initData]);
+
+  useEffect(() => () => { if (eventFlushTimerRef.current !== undefined) window.clearTimeout(eventFlushTimerRef.current); }, []);
 
   async function saveProjectState(state: unknown) {
     const identity = identityRef.current;
@@ -197,6 +209,7 @@ export function useBeatRoom() {
     return publish("TRANSPORT_SET", "transport", { ...payload, revision: Date.now() });
   }
 
+  const cursorThrottleRef = useRef(0);
   function updatePresence(area: string) {
     const identity = identityRef.current; const socket = socketRef.current;
     if (!identity || !socket || socket.readyState !== WebSocket.OPEN) return;
