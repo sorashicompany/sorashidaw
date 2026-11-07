@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useBeatRoom } from "./collaboration";
 import "./styles.css";
 import { WAVETABLES, SYNTH_PRESETS, type SynthState } from "../../../packages/shared/src/synth";
-import { BUILT_IN_EFFECTS, defaultEffectParams, type BuiltInEffectType, type EffectInstance } from "../../../packages/shared/src/effects";
+import { BUILT_IN_EFFECTS, defaultEffectParams, type BuiltInEffectType, type EffectInstance, type ParametricEqBand, DEFAULT_EQ_BANDS } from "../../../packages/shared/src/effects";
 import { AudioFxEngine } from "./audio-fx";
 type MidiCc = { controller: number; value: number; channel: number };
 type MixerChannel = { id:string; name:string; type:"channel"|"bus"|"group"|"send"|"master"; volume:number; pan:number; mute:boolean; solo:boolean; peak:number; route:string; inserts:string[]; sends:Record<string,number>; busId?:string; };
@@ -379,6 +379,24 @@ export default function App() {
     }).catch(() => setMidiEnabled(false));
   }
 
+  function getEqBands(effect: EffectInstance): ParametricEqBand[] {
+    if (effect.type !== "parametric-eq") return DEFAULT_EQ_BANDS;
+    try { return JSON.parse(String(effect.params.bands ?? "[]")) as ParametricEqBand[]; } catch { return DEFAULT_EQ_BANDS; }
+  }
+
+  function updateEqBand(effectId: string, bandId: string, patch: Partial<ParametricEqBand>) {
+    setEffects(current => current.map(effect => {
+      if (effect.id !== effectId) return effect;
+      const bands = getEqBands(effect).map(band => band.id === bandId ? { ...band, ...patch } : band);
+      return { ...effect, params: { ...effect.params, bands: JSON.stringify(bands) } };
+    }));
+    const effect = effects.find(item => item.id === effectId);
+    if (effect) {
+      const bands = getEqBands(effect).map(band => band.id === bandId ? { ...band, ...patch } : band);
+      publish("SET_EFFECT_PARAMETER", effectId, { key: "params.bands", value: JSON.stringify(bands) }, "master");
+    }
+  }
+
   function addEffect(type: BuiltInEffectType) {
     const definition = BUILT_IN_EFFECTS.find(item => item.type === type);
     if (!definition) return;
@@ -604,13 +622,22 @@ export default function App() {
 <div className="full-mixer">{mixer.map(ch=><div className={"mixer-strip "+ch.type} key={ch.id}><div className="strip-head"><b>{ch.name}</b><small>{ch.type}</small></div><div className="meter"><i style={{height:Math.max(3,Math.min(100,(60+ch.peak)*1.5))+"%"}}/></div><input className="fader" type="range" min="-60" max="6" step=".1" value={ch.volume} onChange={e=>updateMixer(ch.id,{volume:Number(e.target.value)})}/><div className="strip-db">{ch.volume.toFixed(1)} dB</div><input type="range" min="-100" max="100" value={ch.pan} onChange={e=>updateMixer(ch.id,{pan:Number(e.target.value)})}/><div className="strip-buttons"><button className={ch.mute?"on":""} onClick={()=>updateMixer(ch.id,{mute:!ch.mute})}>M</button><button className={ch.solo?"on":""} onClick={()=>updateMixer(ch.id,{solo:!ch.solo})}>S</button></div><select value={ch.route} onChange={e=>updateMixer(ch.id,{route:e.target.value})}>{mixer.filter(x=>x.type==="bus"||x.type==="master").map(x=><option key={x.id}>{x.name}</option>)}</select><div className="insert-list">{ch.inserts.map((fx,i)=><button key={i} onClick={()=>{const inserts=ch.inserts.filter((_,j)=>j!==i);updateMixer(ch.id,{inserts})}}>{fx} ×</button>)}<button onClick={()=>updateMixer(ch.id,{inserts:[...ch.inserts,"EQ"]})}>+ FX</button></div><div className="send-list">{Object.entries(ch.sends).map(([send,value])=><label key={send}>{send}<input type="range" min="-60" max="0" value={value} onChange={e=>updateMixer(ch.id,{sends:{...ch.sends,[send]:Number(e.target.value)}})}/></label>)}</div></div>)}</div>
 </Panel>
 <Panel title="Effects" subtitle="real-time Web Audio processing · shared rack" className="effects-panel">
-  <div className="effects-toolbar"><button onClick={()=>void auditionEffects()}>▶ TEST AUDIO</button><span>{effects.length} inserts · Web Audio DSP</span></div>
+  <div className="effects-toolbar"><button onClick={()=>{setEqAnalyzing(true);void auditionEffects()}}>▶ TEST AUDIO</button><span>{effects.length} inserts · Web Audio DSP</span></div>
   <div className="effect-browser">{BUILT_IN_EFFECTS.map(item=><button key={item.type} onClick={()=>addEffect(item.type)}>{item.name}</button>)}</div>
-  <div className="effect-rack">{effects.map(effect=><div className={"effect-card "+(effect.bypass?"bypassed":"")} key={effect.id}>
+  {effects.filter(effect=>effect.type==="parametric-eq").map(effect=><div className="eq-editor" key={effect.id}>
+    <div className="eq-head"><div><b>PARAMETRIC EQ</b><small>6 bands · frequency / gain / Q / filter type</small></div><button onClick={()=>updateEffect(effect.id,{bypass:!effect.bypass})}>{effect.bypass?"BYP":"ON"}</button></div>
+    <canvas ref={eqCanvasRef} className="eq-spectrum" width={900} height={220} />
+    <div className="eq-band-list">{getEqBands(effect).map((band,index)=><div className="eq-band" key={band.id}>
+      <b>{index+1}</b><select value={band.type} onChange={e=>updateEqBand(effect.id,band.id,{type:e.target.value as BiquadFilterType})}><option value="lowshelf">Low Shelf</option><option value="highpass">High Pass</option><option value="peaking">Bell</option><option value="notch">Notch</option><option value="lowpass">Low Pass</option><option value="highshelf">High Shelf</option></select>
+      <label>FREQ<input type="number" min="20" max="20000" value={Math.round(band.frequency)} onChange={e=>updateEqBand(effect.id,band.id,{frequency:Number(e.target.value)})}/></label>
+      <label>GAIN<input type="number" min="-24" max="24" step=".1" value={band.gain} onChange={e=>updateEqBand(effect.id,band.id,{gain:Number(e.target.value)})}/></label>
+      <label>Q<input type="number" min=".05" max="30" step=".01" value={band.q} onChange={e=>updateEqBand(effect.id,band.id,{q:Number(e.target.value)})}/></label>
+      <button className={band.enabled?"on":""} onClick={()=>updateEqBand(effect.id,band.id,{enabled:!band.enabled})}>{band.enabled?"ON":"OFF"}</button>
+    </div>)}</div>
+  </div>)}
+  <div className="effect-rack">{effects.filter(effect=>effect.type!=="parametric-eq").map(effect=><div className={"effect-card "+(effect.bypass?"bypassed":"")} key={effect.id}>
     <div className="effect-head"><b>{effect.name}</b><span>{effect.type}</span><button onClick={()=>updateEffect(effect.id,{bypass:!effect.bypass})}>{effect.bypass?"BYP":"ON"}</button><button onClick={()=>{setEffects(current=>current.filter(item=>item.id!==effect.id));publish("REMOVE_EFFECT",effect.id,{}, "master")}}>×</button></div>
-    <div className="effect-params">
-      {Object.entries(effect.params).filter(([,value])=>typeof value==="number").slice(0,7).map(([key,value])=><label key={key}><span>{key.replace(/([A-Z])/g," $1")}</span><input type="range" min={key.toLowerCase().includes("freq")||key.toLowerCase().includes("cutoff")?20:-60} max={key.toLowerCase().includes("freq")||key.toLowerCase().includes("cutoff")?20000:100} step={key.toLowerCase().includes("freq")||key.toLowerCase().includes("cutoff")?1:0.1} value={Number(value)} onChange={event=>updateEffectParam(effect.id,key,Number(event.target.value))}/><b>{Number(value).toFixed(2)}</b></label>)}
-    </div>
+    <div className="effect-params">{Object.entries(effect.params).filter(([,value])=>typeof value==="number").slice(0,7).map(([key,value])=><label key={key}><span>{key.replace(/([A-Z])/g," $1")}</span><input type="range" min={key.toLowerCase().includes("freq")||key.toLowerCase().includes("cutoff")?20:-60} max={key.toLowerCase().includes("freq")||key.toLowerCase().includes("cutoff")?20000:100} step={key.toLowerCase().includes("freq")||key.toLowerCase().includes("cutoff")?1:0.1} value={Number(value)} onChange={event=>updateEffectParam(effect.id,key,Number(event.target.value))}/><b>{Number(value).toFixed(2)}</b></label>)}</div>
   </div>)}</div>
 </Panel>
 <footer className="bottom-dock">
