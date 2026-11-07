@@ -1,8 +1,9 @@
 import { verifyTelegramInitData } from "./telegram";
 import { BeatRoom } from "./room";
 import { createRoomTicket, verifyRoomTicket } from "./room-ticket";
+import { sendBeatSaved, sendExportedFile, sendInvite, sendOpenBeatStudio, getGroupInviteLink } from "./telegram-bot";
 
-export interface Env { TELEGRAM_BOT_TOKEN: string; BEAT_ROOM: DurableObjectNamespace<BeatRoom>; DRUM_KITS: R2Bucket; }
+export interface Env { TELEGRAM_BOT_TOKEN: string; BEAT_ROOM: DurableObjectNamespace<BeatRoom>; DRUM_KITS: R2Bucket; MINI_APP_URL: string; BOT_WEBHOOK_SECRET?: string; BOT_USERNAME?: string; }
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -12,6 +13,9 @@ export default {
     if (url.pathname === "/api/room/state" && (request.method === "GET" || request.method === "PUT")) return roomState(request, env);
     if (url.pathname === "/api/room/history" && request.method === "GET") return roomHistory(request, env);
     if (url.pathname.startsWith("/api/room/history/") && request.method === "POST") return restoreRoomVersion(request, env);\n    if (url.pathname === "/api/room/assets" && (request.method === "GET" || request.method === "POST")) return roomAssets(request, env);\n    if (url.pathname.startsWith("/api/room/assets/") && request.method === "GET") return roomAsset(request, env);
+    if (request.method === "POST" && url.pathname === "/api/bot/webhook") return botWebhook(request, env);
+    if (request.method === "POST" && url.pathname === "/api/bot/export") return botExport(request, env);
+    if (request.method === "POST" && url.pathname === "/api/bot/saved") return botSaved(request, env);
     if (request.method === "GET" && url.pathname === "/health") return json({ ok: true, service: "sorashidaw-api" });
     return json({ error: "Not found" }, 404);
   },
@@ -161,5 +165,63 @@ async function roomAsset(request: Request, env: Env): Promise<Response> {
     return new Response(object.body, { headers });
   } catch {
     return new Response("Unauthorized", { status: 401 });
+  }
+}
+
+
+async function botWebhook(request: Request, env: Env): Promise<Response> {
+  if (env.BOT_WEBHOOK_SECRET && request.headers.get("X-Telegram-Bot-Api-Secret-Token") !== env.BOT_WEBHOOK_SECRET) {
+    return json({ error: "Invalid webhook secret" }, 401);
+  }
+  let update: any;
+  try { update = await request.json(); } catch { return json({ error: "Invalid update" }, 400); }
+  const message = update?.message;
+  if (!message?.chat?.id) return json({ ok: true });
+  const chatId = Number(message.chat.id);
+  const text = String(message.text ?? "").trim();
+  if (/^\/(start|open)(?:@[^ ]+)?/i.test(text)) {
+    await sendOpenBeatStudio(env.TELEGRAM_BOT_TOKEN, chatId, env.MINI_APP_URL, "This chat has its own shared Beat Room.");
+  } else if (/^\/invite(?:@[^ ]+)?/i.test(text)) {
+    try {
+      const inviteUrl = await getGroupInviteLink(env.TELEGRAM_BOT_TOKEN, chatId);
+      await sendInvite(env.TELEGRAM_BOT_TOKEN, chatId, env.MINI_APP_URL, inviteUrl);
+    } catch {
+      await sendInvite(env.TELEGRAM_BOT_TOKEN, chatId, env.MINI_APP_URL);
+    }
+  } else if (/^\/beat(?:@[^ ]+)?/i.test(text)) {
+    await sendOpenBeatStudio(env.TELEGRAM_BOT_TOKEN, chatId, env.MINI_APP_URL);
+  }
+  return json({ ok: true });
+}
+
+async function botExport(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const chatId = Number(url.searchParams.get("chatId"));
+  const ticket = url.searchParams.get("ticket");
+  if (!Number.isSafeInteger(chatId) || !ticket) return json({ error: "chatId and ticket are required" }, 401);
+  try {
+    const verified = await verifyRoomTicket(ticket, chatId, env.TELEGRAM_BOT_TOKEN);
+    const form = await request.formData();
+    const file = form.get("file");
+    if (!(file instanceof File)) return json({ error: "Export file is required" }, 400);
+    await sendExportedFile(env.TELEGRAM_BOT_TOKEN, verified.chatId, file, String(form.get("caption") || "Beat export"));
+    return json({ ok: true });
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : "Telegram export failed" }, 400);
+  }
+}
+
+async function botSaved(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const chatId = Number(url.searchParams.get("chatId"));
+  const ticket = url.searchParams.get("ticket");
+  if (!Number.isSafeInteger(chatId) || !ticket) return json({ error: "chatId and ticket are required" }, 401);
+  try {
+    const verified = await verifyRoomTicket(ticket, chatId, env.TELEGRAM_BOT_TOKEN);
+    const body = await request.json().catch(() => ({})) as { version?: number };
+    await sendBeatSaved(env.TELEGRAM_BOT_TOKEN, verified.chatId, env.MINI_APP_URL, body.version);
+    return json({ ok: true });
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : "Telegram notification failed" }, 400);
   }
 }
