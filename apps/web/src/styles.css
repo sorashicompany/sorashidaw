@@ -254,3 +254,16 @@ button { color: inherit; }
 .history-item small{display:block;color:#6f7c8d;margin-top:3px;font-size:9px}
 .history-item button{background:#171f2b;border:1px solid #334154;color:#aeb9c8;padding:5px 8px;font-size:9px}
 .history-empty{padding:18px;color:#687587;font-size:10px}
+
+.history-button,.export-button{border:1px solid #30343d;background:#171a20;color:#bfc6d1;border-radius:6px;padding:5px 8px;font-size:10px;font-weight:700;letter-spacing:.08em;cursor:pointer}
+.history-button:hover,.export-button:hover{border-color:#596273;color:#fff}
+.export-popover{width:420px}
+.export-targets{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;padding:10px}
+.export-targets button{display:flex;justify-content:space-between;align-items:center;gap:8px;border:1px solid #292e37;background:#15181e;color:#aeb6c3;padding:9px 10px;border-radius:5px;text-align:left;cursor:pointer}
+.export-targets button.active{border-color:#737e91;color:#fff;background:#20242c}
+.export-targets button small{color:#68717f;font-size:9px;text-transform:uppercase}
+.export-actions{display:flex;flex-wrap:wrap;gap:6px;padding:0 10px 10px}
+.export-actions button{border:1px solid #343a45;background:#1c2027;color:#d7dce5;border-radius:5px;padding:7px 10px;font-size:10px;font-weight:700;cursor:pointer}
+.export-actions button:hover{background:#262b34}
+.export-actions button:disabled{opacity:.45;cursor:wait}
+.export-note{display:block;color:#68717f;padding:0 10px 11px;line-height:1.4}
