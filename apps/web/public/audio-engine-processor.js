@@ -4,7 +4,14 @@ class SorashiAudioProcessor extends AudioWorkletProcessor {
     this.playing = false;
     this.bpm = 128;
     this.step = 0;
-    this.nextStepFrame = 0;\n    this.startAtFrame = 0;\n    this.positionBeats = 0;\n    this.loopEnabled = false;\n    this.loopStartBeats = 0;\n    this.loopEndBeats = 64;\n    this.cutoff = 20000;\n    this.filterState = 0;
+    this.nextStepFrame = 0;
+    this.startAtFrame = 0;
+    this.positionBeats = 0;
+    this.loopEnabled = false;
+    this.loopStartBeats = 0;
+    this.loopEndBeats = 64;
+    this.cutoff = 20000;
+    this.filterState = 0;
     this.channels = [];
     this.notes = [];
     this.voices = [];
@@ -12,7 +19,10 @@ class SorashiAudioProcessor extends AudioWorkletProcessor {
       const message = event.data;
       if (message.type === "transport") {
         this.bpm = Math.max(40, Math.min(240, Number(message.bpm) || 128));
-        this.positionBeats = Number(message.positionBeats || 0);\n        this.loopEnabled = Boolean(message.loopEnabled);\n        this.loopStartBeats = Number(message.loopStartBeats || 0);\n        this.loopEndBeats = Math.max(this.loopStartBeats + 1, Number(message.loopEndBeats || 64));
+        this.positionBeats = Number(message.positionBeats || 0);
+        this.loopEnabled = Boolean(message.loopEnabled);
+        this.loopStartBeats = Number(message.loopStartBeats || 0);
+        this.loopEndBeats = Math.max(this.loopStartBeats + 1, Number(message.loopEndBeats || 64));
         this.startAtFrame = Number(message.startAtFrame || currentFrame);
         this.playing = !message.startAtFrame && Boolean(message.playing);
         if (message.startAtFrame && message.playing) this.playing = false;
@@ -87,7 +97,9 @@ class SorashiAudioProcessor extends AudioWorkletProcessor {
             this.voices.push({ type: "tone", age: 0, amp: Math.max(0.01, Number(note.velocity || 100) / 127 * 0.12), freq, release: Math.max(0.05, Number(note.length || 1) * 60 / this.bpm / 4) });
           }
         }
-        this.step++;\n        this.positionBeats = this.step / 4;\n        if (this.loopEnabled && this.positionBeats >= this.loopEndBeats) { this.step = Math.floor(this.loopStartBeats * 4); this.positionBeats = this.loopStartBeats; }
+        this.step++;
+        this.positionBeats = this.step / 4;
+        if (this.loopEnabled && this.positionBeats >= this.loopEndBeats) { this.step = Math.floor(this.loopStartBeats * 4); this.positionBeats = this.loopStartBeats; }
         this.nextStepFrame += framesPerStep;
         if (this.step % 16 === 0) this.port.postMessage({ type: "bar", bar: Math.floor(this.step / 16) + 1 });
       }
