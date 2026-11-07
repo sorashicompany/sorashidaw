@@ -165,9 +165,11 @@ export class AudioFxEngine {
   getGainReduction(id:string, effectId?: string): number { return this.chains.get(id)?.find(node => node.reduction && (!effectId || node.effectId === effectId))?.reduction?.reduction ?? 0; }
 
   createChain(id:string,effects:EffectInstance[]): AudioNode {
-    const nodes=effects.map(e=>{ const node=this.createEffect(e); node.effectId=e.id; return node; });\n    const analyzer=this.context.createAnalyser(); analyzer.fftSize=2048; analyzer.smoothingTimeConstant=.82;
-    if(nodes.length nodes.at(-1)!.output.connect(analyzer);\n    if(nodes.length) { const last=nodes.at(-1) as EffectNode; last.analyzer=analyzer; const compressor=last.output; void compressor; }
-    if (!nodes.length {
+    const nodes=effects.map(e=>{ const node=this.createEffect(e); node.effectId=e.id; return node; });
+    const analyzer=this.context.createAnalyser(); analyzer.fftSize=2048; analyzer.smoothingTimeConstant=.82;
+    if(nodes.length) nodes.at(-1)!.output.connect(analyzer);
+    if(nodes.length) { const last=nodes.at(-1) as EffectNode; last.analyzer=analyzer; const compressor=last.output; void compressor; }
+    if (!nodes.length) {
       const input = this.context.createGain();
       const output = this.context.createGain();
       const analyzerNode = this.context.createAnalyser();
