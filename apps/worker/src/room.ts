@@ -35,6 +35,23 @@ export class BeatRoom extends DurableObject<RoomEnv> {
     return new Response(null, { status: 101, webSocket: client });
   }
 
+  async getProjectState(): Promise<{ state: unknown; version: number; updatedAt: string | null }> {
+    const state = await this.ctx.storage.get<unknown>("project-state");
+    const version = (await this.ctx.storage.get<number>("project-version")) ?? 0;
+    const updatedAt = (await this.ctx.storage.get<string>("project-updated-at")) ?? null;
+    return { state: state ?? null, version, updatedAt };
+  }
+
+  async saveProjectState(state: unknown, clientVersion?: number): Promise<{ version: number; updatedAt: string }> {
+    const current = (await this.ctx.storage.get<number>("project-version")) ?? 0;
+    const version = Math.max(current + 1, Number(clientVersion ?? 0));
+    const updatedAt = new Date().toISOString();
+    await this.ctx.storage.put("project-state", state);
+    await this.ctx.storage.put("project-version", version);
+    await this.ctx.storage.put("project-updated-at", updatedAt);
+    return { version, updatedAt };
+  }
+
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
     const connection = ws.deserializeAttachment() as Connection;
     if (typeof message !== "string") { ws.send(JSON.stringify({ type: "sync.error", message: "Binary messages are not supported" })); return; }
