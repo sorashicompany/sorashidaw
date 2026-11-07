@@ -2,6 +2,16 @@ import { useEffect, useRef, useState } from "react";
 import type { CollaborationEnvelope, CollaborationOperation, CollaborationOperationType } from "../../../packages/shared/src/collaboration";
 
 export type RoomConnectionState = "offline" | "connecting" | "live" | "error";
+export type RoomTransportState = {
+  playing: boolean;
+  bpm: number;
+  positionBeats: number;
+  startedAtServerMs: number;
+  loopEnabled: boolean;
+  loopStartBeats: number;
+  loopEndBeats: number;
+  revision: number;
+};
 
 type AuthResponse = {
   authenticated: true;
@@ -17,6 +27,8 @@ export function useBeatRoom() {
   const [events, setEvents] = useState<CollaborationEnvelope[]>([]);
   const [presence, setPresence] = useState<import("../../../packages/shared/src/collaboration").PresenceState[]>([]);
   const identityRef = useRef<{ userId: number; chatId: number } | null>(null);\n  const ticketRef = useRef<string | null>(null);\n  const [roomTicket, setRoomTicket] = useState<string | null>(null);\n  const [chatId, setChatId] = useState<number | null>(null);
+  const [serverOffsetMs, setServerOffsetMs] = useState(0);
+  const [transport, setTransport] = useState<RoomTransportState | null>(null);
 
   useEffect(() => {
     const initData = window.Telegram?.WebApp?.initData;
@@ -59,6 +71,19 @@ export function useBeatRoom() {
               sequenceRef.current = message.sequence;
             }
             if (message.type === "sync.presence.snapshot") setPresence(message.presence);
+            if (message.type === "sync.operation" && message.operation.type === "TRANSPORT_SET") {
+              const p = message.operation.payload as Partial<RoomTransportState>;
+              setTransport({
+                playing: Boolean(p.playing),
+                bpm: Number(p.bpm ?? 128),
+                positionBeats: Number(p.positionBeats ?? 0),
+                startedAtServerMs: Number(p.startedAtServerMs ?? 0),
+                loopEnabled: Boolean(p.loopEnabled),
+                loopStartBeats: Number(p.loopStartBeats ?? 0),
+                loopEndBeats: Number(p.loopEndBeats ?? 64),
+                revision: Number(p.revision ?? message.sequence)
+              });
+            }
             if (message.type === "sync.presence") setPresence(prev => { const next = prev.filter(p => p.actorId !== message.presence.actorId); return [...next, message.presence]; });
             if (message.type === "sync.cursor") setPresence(prev => prev.map(p => p.actorId === message.actorId ? { ...p, cursor: message.cursor, area: message.area, status: "online" } : p));
             setEvents(prev => [...prev.slice(-199), message]);
@@ -111,6 +136,10 @@ export function useBeatRoom() {
     return true;
   }
 
+  function publishTransport(payload: Omit<RoomTransportState, "revision">) {
+    return publish("TRANSPORT_SET", "transport", { ...payload, revision: Date.now() });
+  }
+
   function updatePresence(area: string) {
     const identity = identityRef.current; const socket = socketRef.current;
     if (!identity || !socket || socket.readyState !== WebSocket.OPEN) return;
@@ -120,7 +149,7 @@ export function useBeatRoom() {
     const socket = socketRef.current; if (!socket || socket.readyState !== WebSocket.OPEN) return;
     socket.send(JSON.stringify({ type: "cursor.move", cursor: { x, y }, area }));
   }
-  return { state, events, presence, publish, updatePresence, publishCursor, sequence: sequenceRef.current, roomTicket, chatId };
+  return { state, events, presence, publish, publishTransport, transport, serverOffsetMs, updatePresence, publishCursor, sequence: sequenceRef.current, roomTicket, chatId };
 }
 
 declare global {
