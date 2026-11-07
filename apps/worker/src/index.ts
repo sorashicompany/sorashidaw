@@ -47,8 +47,8 @@ async function authenticateTelegram(request: Request, env: Env): Promise<Respons
         username: data.user.username,
         last_name: data.user.last_name,
         chat_type: chat.type ?? data.chat_type,
-        chat_title: data.chat.title,
-        chat_username: data.chat.username,
+        chat_title: data.chat?.title,
+        chat_username: data.chat?.username,
       });
     } catch (error) {
       console.error("supabase load failed", error);
