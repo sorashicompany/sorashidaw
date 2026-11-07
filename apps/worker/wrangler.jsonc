@@ -3,10 +3,11 @@
   "name": "nexoradaw-api",
   "main": "src/index.ts",
   "compatibility_date": "2026-11-07",
-  "observability": { "enabled": true },
+  "observability": { "enabled": true, "traces": { "enabled": true } },
   "vars": {
     "SUPABASE_URL": "https://xdosscxenccrsshjjrpg.supabase.co",
-    "SUPABASE_PUBLISHABLE_KEY": "sb_publishable__K1KlOjR7faj8se6hhcjQw_gOLXv_jM"
+    "SUPABASE_PUBLISHABLE_KEY": "sb_publishable__K1KlOjR7faj8se6hhcjQw_gOLXv_jM",
+    "MINI_APP_URL": "https://nexoradaw-web.pages.dev"
   },
   "r2_buckets": [
     { "binding": "DRUM_KITS", "bucket_name": "sorashidaw-drum-kits" }
