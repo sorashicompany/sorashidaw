@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useBeatRoom } from "./collaboration";
 import "./styles.css";
+import { WAVETABLES, SYNTH_PRESETS, type SynthState } from "../../../packages/shared/src/synth";
 
 const windows = ["Playlist", "Step Sequencer", "Piano Roll", "Mixer", "Browser", "Synthesizer", "Effects"] as const;
 type WindowName = (typeof windows)[number];
@@ -8,6 +9,11 @@ type ClipKind = "audio" | "midi" | "pattern" | "loop";
 type DrumChannel = { id: string; name: string; sample: string; sampleId?: string; steps: boolean[]; volume: number; pan: number; mute: boolean; solo: boolean; velocity: number; };
 type DrumAsset = { id: string; name: string; category: string; folder: string; mimeType: string; size: number; previewUrl?: string; };
 type MidiNote = { id: string; pitch: number; start: number; length: number; velocity: number; selected?: boolean };
+const INITIAL_SYNTH: SynthState = { polyphony: 16, glide: 0.04, masterVolume: 0, oscillators: [
+  { id:"osc1", enabled:true, type:"wavetable", wavetableId:"basic-shapes", wavetablePosition:18, volume:0, octave:0, semitone:0, fine:0, unison:1, detune:0, phase:0 },
+  { id:"osc2", enabled:true, type:"wavetable", wavetableId:"spectral", wavetablePosition:42, volume:-6, octave:-1, semitone:0, fine:0, unison:2, detune:8, phase:180 },
+  { id:"osc3", enabled:false, type:"saw", wavetableId:"basic-shapes", wavetablePosition:0, volume:-12, octave:1, semitone:7, fine:0, unison:1, detune:0, phase:0 }
+], noise:{enabled:false,volume:-18,color:50}, filter:{type:"lowpass",cutoff:7200,resonance:18,drive:0}, ampEnv:{attack:.01,decay:.25,sustain:.78,release:.35}, filterEnv:{attack:.01,decay:.4,sustain:.45,release:.3}, lfos:[{id:"lfo1",rate:4,shape:"sine",sync:true,amount:32},{id:"lfo2",rate:.5,shape:"triangle",sync:false,amount:12}], routes:[{id:"r1",source:"LFO 1",destination:"Filter Cutoff",amount:34},{id:"r2",source:"ENV 2",destination:"Wavetable Position",amount:22}] };
 
 type Track = {
   id: string;
@@ -82,6 +88,8 @@ export default function App() {
   const [pianoSnap, setPianoSnap] = useState(1);
   const [scaleRoot, setScaleRoot] = useState(0);
   const [scaleMode, setScaleMode] = useState("minor");
+  const [synth, setSynth] = useState<SynthState>(INITIAL_SYNTH);
+  const [synthTab, setSynthTab] = useState("OSC");
   const { state: roomState, presence, updatePresence, publishCursor, publish, events } = useBeatRoom();
   const appliedOps = useRef(new Set<string>());
 
@@ -256,6 +264,22 @@ export default function App() {
     emit("ADD_PATTERN_CLIP", clip.id, clip, "drums");
   }
 
+  function setSynthParameter(path: string, value: unknown) {
+    setSynth(current => {
+      const next = structuredClone(current) as SynthState;
+      const parts = path.split(".");
+      let target: any = next;
+      for (let i=0;i<parts.length-1;i++) target = target[parts[i]];
+      target[parts[parts.length-1]] = value;
+      return next;
+    });
+    emit("SET_SYNTH_PARAMETER", path, { path, value }, "synth");
+  }
+  function updateSynthOsc(index: number, patch: Partial<SynthState["oscillators"][number]>) {
+    setSynth(current => ({ ...current, oscillators: current.oscillators.map((osc,i)=>i===index ? {...osc,...patch}:osc) }));
+    Object.entries(patch).forEach(([key,value]) => emit("SET_SYNTH_PARAMETER", "oscillators."+index+"."+key, { path:"oscillators."+index+"."+key, value }, "synth"));
+  }
+
   function quantize(value: number) { return Math.max(0, Math.round(value / pianoSnap) * pianoSnap); }
   function addMidiNote(pitch: number, start: number) { const note: MidiNote = { id: crypto.randomUUID(), pitch, start: quantize(start), length: Math.max(pianoSnap, pianoSnap * 2), velocity: 100 }; setPianoNotes(current => [...current, note]); setSelectedNotes([note.id]); emit("ADD_NOTE", note.id, note, "keys"); }
   function selectMidiNote(id: string, additive: boolean) { setSelectedNotes(current => additive ? (current.includes(id) ? current.filter(item => item !== id) : [...current, id]) : [id]); }
@@ -386,6 +410,18 @@ export default function App() {
   } else updateDrumChannel(channel.id, { sample: value, sampleId: undefined });
 }}><optgroup label="Built-in">{DRUM_SAMPLES.map(sample => <option key={sample} value={sample}>{sample}</option>)}</optgroup><optgroup label="Room Drum Kit">{drumAssets.map(asset => <option key={asset.id} value={"asset:" + asset.id}>{asset.name}</option>)}</optgroup></select><input className="mini-number" value={channel.volume} type="number" min="-60" max="6" onChange={event => updateDrumChannel(channel.id, { volume: Number(event.target.value) })}/><input className="mini-pan" value={channel.pan} type="range" min="-100" max="100" onChange={event => updateDrumChannel(channel.id, { pan: Number(event.target.value) })}/><div className="ms"><button className={channel.mute ? "on" : ""} onClick={() => updateDrumChannel(channel.id, { mute: !channel.mute })}>M</button><button className={channel.solo ? "on" : ""} onClick={() => updateDrumChannel(channel.id, { solo: !channel.solo })}>S</button></div><input className="velocity" value={channel.velocity} type="range" min="1" max="127" onChange={event => updateDrumChannel(channel.id, { velocity: Number(event.target.value) })}/><div className="steps">{Array.from({ length: patternLength }, (_, index) => <button key={index} className={channel.steps[index] ? "step on" : "step"} onClick={() => toggleDrumStep(channel.id, index)} />)}</div></div>)}</div><div className="panel-footer"><span>{drumChannels[0]?.steps.slice(0, patternLength).filter(Boolean).length ?? 0} kick hits</span><span>{patternLength} steps · {activePattern}</span></div>
             </Panel>
+            <Panel title="Wavetable Synth" subtitle="3 oscillators · modulation matrix" className="synth-panel">
+<div className="synth-toolbar"><div>{["OSC","FILTER","ENV","LFO","MOD","PRESETS"].map(tab=><button className={synthTab===tab?"active":""} key={tab} onClick={()=>setSynthTab(tab)}>{tab}</button>)}</div><span>POLY {synth.polyphony}</span><span>MASTER {synth.masterVolume} dB</span></div>
+<div className="synth-main">
+{(synthTab==="OSC" || synthTab==="FILTER" || synthTab==="ENV") && <div className="synth-oscillators">{synth.oscillators.map((osc,i)=><div className="osc-card" key={osc.id}><div className="osc-head"><b>OSC {i+1}</b><button className={osc.enabled?"active":""} onClick={()=>updateSynthOsc(i,{enabled:!osc.enabled})}>ON</button></div><select value={osc.type} onChange={e=>updateSynthOsc(i,{type:e.target.value as any})}>{["wavetable","sine","triangle","saw","square"].map(t=><option key={t}>{t}</option>)}</select><select value={osc.wavetableId} onChange={e=>updateSynthOsc(i,{wavetableId:e.target.value})}>{WAVETABLES.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}</select><label>WT POS<input type="range" min="0" max="100" value={osc.wavetablePosition} onChange={e=>updateSynthOsc(i,{wavetablePosition:Number(e.target.value)})}/><b>{osc.wavetablePosition}</b></label><div className="synth-grid-controls"><Knob label="VOL" /><Knob label="DETUNE" /><Knob label="PHASE" /></div><div className="synth-number-row"><label>OCT <input type="number" value={osc.octave} onChange={e=>updateSynthOsc(i,{octave:Number(e.target.value)})}/></label><label>SEMI <input type="number" value={osc.semitone} onChange={e=>updateSynthOsc(i,{semitone:Number(e.target.value)})}/></label><label>FINE <input type="number" value={osc.fine} onChange={e=>updateSynthOsc(i,{fine:Number(e.target.value)})}/></label><label>UNI <input type="number" min="1" max="16" value={osc.unison} onChange={e=>updateSynthOsc(i,{unison:Number(e.target.value)})}/></label></div></div>)}</div>}
+{(synthTab==="FILTER" || synthTab==="OSC") && <div className="synth-section"><h4>FILTER</h4><select value={synth.filter.type} onChange={e=>setSynthParameter("filter.type",e.target.value)}>{["lowpass","highpass","bandpass","notch"].map(t=><option key={t}>{t}</option>)}</select><label>CUTOFF <input type="range" min="20" max="20000" value={synth.filter.cutoff} onChange={e=>setSynthParameter("filter.cutoff",Number(e.target.value))}/><b>{synth.filter.cutoff} Hz</b></label><label>RESONANCE <input type="range" min="0" max="100" value={synth.filter.resonance} onChange={e=>setSynthParameter("filter.resonance",Number(e.target.value))}/></label></div>}
+{(synthTab==="ENV" || synthTab==="OSC") && <div className="synth-section"><h4>AMP ADSR</h4><div className="adsr"><Knob label="ATTACK"/><Knob label="DECAY"/><Knob label="SUSTAIN"/><Knob label="RELEASE"/></div><h4>FILTER ADSR</h4><div className="adsr"><Knob label="ATTACK"/><Knob label="DECAY"/><Knob label="SUSTAIN"/><Knob label="RELEASE"/></div></div>}
+{(synthTab==="LFO" || synthTab==="MOD") && <div className="synth-section"><h4>LFO</h4>{synth.lfos.map((lfo,i)=><div className="lfo-row" key={lfo.id}><b>LFO {i+1}</b><select value={lfo.shape} onChange={e=>setSynthParameter("lfos."+i+".shape",e.target.value)}>{["sine","triangle","saw","square"].map(s=><option key={s}>{s}</option>)}</select><input type="range" min=".1" max="20" step=".1" value={lfo.rate} onChange={e=>setSynthParameter("lfos."+i+".rate",Number(e.target.value))}/><span>{lfo.rate} Hz</span></div>)}</div>}
+{(synthTab==="MOD" || synthTab==="OSC") && <div className="synth-section modulation"><h4>MODULATION MATRIX</h4>{synth.routes.map((route,i)=><div className="mod-route" key={route.id}><select value={route.source} onChange={e=>setSynthParameter("routes."+i+".source",e.target.value)}><option>LFO 1</option><option>LFO 2</option><option>ENV 1</option><option>ENV 2</option><option>Velocity</option><option>Keytrack</option><option>Mod Wheel</option></select><span>→</span><select value={route.destination} onChange={e=>setSynthParameter("routes."+i+".destination",e.target.value)}><option>Pitch</option><option>Volume</option><option>Filter Cutoff</option><option>Filter Resonance</option><option>Wavetable Position</option><option>Pan</option></select><input type="range" min="-100" max="100" value={route.amount} onChange={e=>setSynthParameter("routes."+i+".amount",Number(e.target.value))}/><b>{route.amount}</b></div>)}</div>}
+{(synthTab==="PRESETS") && <div className="synth-section preset-list"><h4>PRESETS</h4>{SYNTH_PRESETS.length ? SYNTH_PRESETS.map(p=><button key={p.id}>{p.name}</button>) : <div className="empty-room">Preset library ready for expansion</div>}</div>}
+</div>
+<div className="synth-noise"><label><input type="checkbox" checked={synth.noise.enabled} onChange={e=>setSynthParameter("noise.enabled",e.target.checked)}/> NOISE</label><span>VOL {synth.noise.volume} dB</span><input type="range" min="-60" max="0" value={synth.noise.volume} onChange={e=>setSynthParameter("noise.volume",Number(e.target.value))}/><span>COLOR {synth.noise.color}</span><input type="range" min="0" max="100" value={synth.noise.color} onChange={e=>setSynthParameter("noise.color",Number(e.target.value))}/></div>
+</Panel>
             <Panel title="Piano Roll" subtitle="MIDI · C minor" className="piano-panel">
   <div className="piano-toolbar"><div className="piano-tools"><button onClick={deleteMidiNotes}>Delete</button><button onClick={copyMidiNotes}>Copy</button><button onClick={pasteMidiNotes}>Paste</button><button onClick={duplicateMidiNotes}>Duplicate</button></div><label>Snap <select value={pianoSnap} onChange={event => setPianoSnap(Number(event.target.value))}><option value={0.25}>1/16</option><option value={0.5}>1/8</option><option value={1}>1/4</option><option value={2}>1/2</option></select></label><label>Scale <select value={scaleRoot} onChange={event => setScaleRoot(Number(event.target.value))}>{["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"].map((n,i)=><option key={n} value={i}>{n}</option>)}</select><select value={scaleMode} onChange={event => setScaleMode(event.target.value)}><option value="minor">minor</option><option value="major">major</option></select></label><label>Zoom <input type="range" min="0.6" max="2.5" step="0.1" value={pianoZoom} onChange={event => setPianoZoom(Number(event.target.value))}/></label></div>
   <div className="piano-editor" style={{ "--piano-zoom": pianoZoom } as React.CSSProperties}>
