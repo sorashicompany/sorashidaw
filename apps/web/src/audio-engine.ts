@@ -1,0 +1,66 @@
+import type { EffectInstance } from "../../../packages/shared/src/effects";
+import type { DrumChannel, MidiNote } from "./audio-engine-types";
+import { AudioFxEngine } from "./audio-fx";
+
+export class RealAudioEngine {
+  readonly context: AudioContext;
+  private node: AudioWorkletNode | null = null;
+  private masterFx: AudioFxEngine | null = null;
+  private masterEffects: EffectInstance[] = [];
+  private loaded = false;
+
+  constructor() { this.context = new AudioContext(); }
+
+  async init(): Promise<void> {
+    if (this.loaded) return;
+    await this.context.audioWorklet.addModule("/audio-engine-processor.js");
+    this.node = new AudioWorkletNode(this.context, "sorashi-audio-engine", { outputChannelCount: [2] });
+    this.node.port.onmessage = event => {
+      if (event.data?.type === "bar") this.onBar?.(Number(event.data.bar));
+    };
+    this.loaded = true;
+  }
+
+  onBar?: (bar: number) => void;
+
+  async resume(): Promise<void> {
+    await this.init();
+    if (this.context.state !== "running") await this.context.resume();
+  }
+
+  setState(bpm: number, channels: DrumChannel[], notes: MidiNote[]): void {
+    this.node?.port.postMessage({ type: "state", bpm, channels: channels.map(({ id,name,steps,velocity,mute,solo,volume }) => ({ id,name,steps,velocity,mute,solo,volume })), notes });
+  }
+
+  async setMasterChain(effects: EffectInstance[]): Promise<void> {
+    await this.resume();
+    if (!this.node) return;
+    if (this.masterFx) {
+      this.masterFx.disconnect("master-channel");
+    }
+    this.masterEffects = structuredClone(effects);
+    this.masterFx = new AudioFxEngine(this.context);
+    this.masterFx.attachSource("master-channel", this.node, this.masterEffects, this.context.destination);
+  }
+
+  setMasterParameter(effectId: string, key: string, value: unknown): void {
+    this.masterFx?.setEffectParameter("master-channel", effectId, key, value);
+  }
+
+  setMasterBypass(effectId: string, bypass: boolean): void {
+    this.masterFx?.setEffectBypass("master-channel", effectId, bypass);
+  }
+
+  async setPlaying(playing: boolean, bpm: number): Promise<void> {
+    await this.resume();
+    this.node?.port.postMessage({ type: "transport", playing, bpm, resume: playing });
+  }
+
+  stop(): void {
+    this.node?.port.postMessage({ type: "transport", playing: false, bpm: 128 });
+  }
+
+  seek(step = 0): void {
+    this.node?.port.postMessage({ type: "seek", step });
+  }
+}
