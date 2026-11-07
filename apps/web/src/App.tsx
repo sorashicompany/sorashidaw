@@ -122,22 +122,93 @@ export default function App() {
   const eqCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const masterTestOscRef = useRef<OscillatorNode | null>(null);
   const realAudioEngineRef = useRef<RealAudioEngine | null>(null);
-  const { state: roomState, presence, updatePresence, publishCursor, publish, events, roomTicket, chatId } = useBeatRoom();
+  const { state: roomState, presence, updatePresence, publishCursor, publish, publishTransport, transport, roomTicket, chatId, serverOffsetMs } = useBeatRoom();
   const appliedOps = useRef(new Set<string>());
 
-  const togglePlayback = async () => {
+  const [loopEnabled, setLoopEnabled] = useState(false);
+  const [loopStartBeats, setLoopStartBeats] = useState(0);
+  const [loopEndBeats, setLoopEndBeats] = useState(64);
+  const [transportPosition, setTransportPosition] = useState(0);
+
+  const ensureAudioEngine = () => {
     if (!realAudioEngineRef.current) {
       realAudioEngineRef.current = new RealAudioEngine();
       realAudioEngineRef.current.onBar = nextBar => setBar(nextBar);
     }
-    const engine = realAudioEngineRef.current;
+    return realAudioEngineRef.current;
+  };
+
+  const localTransportPosition = () => {
+    if (!transport) return transportPosition;
+    if (!transport.playing) return transport.positionBeats;
+    const elapsed = Math.max(0, (Date.now() + serverOffsetMs - transport.startedAtServerMs) / 1000);
+    let position = transport.positionBeats + elapsed * transport.bpm / 60;
+    if (transport.loopEnabled && transport.loopEndBeats > transport.loopStartBeats) {
+      const length = transport.loopEndBeats - transport.loopStartBeats;
+      if (position >= transport.loopEndBeats) position = transport.loopStartBeats + ((position - transport.loopStartBeats) % length);
+    }
+    return position;
+  };
+
+  const publishStart = async () => {
+    const engine = ensureAudioEngine();
     await engine.setMasterChain(masterEffects);
     engine.setState(bpm, drumChannels, pianoNotes);
-    const next = !playing;
-    setPlaying(next);
-    if (next) await engine.setPlaying(true, bpm);
-    else { engine.stop(); setBar(1); }
+    const startAtServerMs = Date.now() + serverOffsetMs + 350;
+    const payload = { playing:true, bpm, positionBeats: transport ? localTransportPosition() : transportPosition, startedAtServerMs:startAtServerMs, loopEnabled, loopStartBeats, loopEndBeats };
+    publishTransport(payload);
+    setPlaying(true);
+    await engine.scheduleTransport(true, bpm, engine.context.currentTime + 0.35, payload.positionBeats, loopEnabled, loopStartBeats, loopEndBeats);
   };
+
+  const publishPause = async () => {
+    const position = localTransportPosition();
+    const engine = ensureAudioEngine();
+    publishTransport({ playing:false, bpm, positionBeats:position, startedAtServerMs:0, loopEnabled, loopStartBeats, loopEndBeats });
+    setPlaying(false);
+    await engine.setPlaying(false, bpm, position);
+    setTransportPosition(position);
+  };
+
+  const publishStop = async () => {
+    const engine = ensureAudioEngine();
+    publishTransport({ playing:false, bpm, positionBeats:0, startedAtServerMs:0, loopEnabled, loopStartBeats, loopEndBeats });
+    setPlaying(false);
+    setTransportPosition(0);
+    setBar(1);
+    engine.stop();
+  };
+
+  const togglePlayback = async () => {
+    if (transport?.playing || playing) await publishPause();
+    else await publishStart();
+  };
+
+  useEffect(() => {
+    if (!transport) return;
+    setPlaying(transport.playing);
+    setBpm(transport.bpm);
+    setLoopEnabled(transport.loopEnabled);
+    setLoopStartBeats(transport.loopStartBeats);
+    setLoopEndBeats(transport.loopEndBeats);
+  }, [transport]);
+
+  useEffect(() => {
+    const tick = () => {
+      const position = localTransportPosition();
+      setTransportPosition(position);
+      setBar(Math.floor(position / 4) + 1);
+      requestAnimationFrame(tick);
+    };
+    const id = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(id);
+  }, [transport, serverOffsetMs, bpm]);
+
+  useEffect(() => {
+    const engine = realAudioEngineRef.current;
+    if (!engine) return;
+    engine.setState(bpm, drumChannels, pianoNotes);
+  }, [bpm, drumChannels, pianoNotes]);
 
   useEffect(() => {
     const engine = realAudioEngineRef.current;
@@ -633,11 +704,11 @@ export default function App() {
         <div className="brand"><div className="brand-mark">S</div><div><strong>SORASHI DAW</strong><span>shared beat room</span></div></div>
         <div className="project"><button className="project-name">Untitled Beat <span>⌄</span></button><span className="save-state"><i /> Saved</span></div>
         <div className="transport">
-          <button className="transport-button" onClick={() => void togglePlayback()}>{playing ? "STOP" : "PLAY"}</button>
-          <button className="transport-icon" onClick={() => { setBar(1); realAudioEngineRef.current?.seek(0); }}>■</button>
+          <button className="transport-button" onClick={() => void togglePlayback()}>{playing ? "PAUSE" : "PLAY"}</button>\n          <button className="transport-button" onClick={() => void publishStop()}>STOP</button>
+          <button className="transport-icon" onClick={() => void publishStop()}>■</button>
           <span className="tempo-label">BPM</span>
           <input value={bpm} type="number" min="40" max="240" onChange={event => { const value = Number(event.target.value); setBpm(value); emit("CHANGE_BPM", "project", { bpm: value }); }} />
-          <span className="position">00:{String(bar).padStart(2, "0")}:00</span>
+          <span className="position">{formatTransportTime(transportPosition, bpm)}</span><span className="position">BAR {bar} · BEAT {Math.floor(transportPosition % 4) + 1}</span><button className={"transport-loop " + (loopEnabled ? "active" : "")} onClick={() => { const next = !loopEnabled; setLoopEnabled(next); publishTransport({ playing:Boolean(transport?.playing), bpm, positionBeats:localTransportPosition(), startedAtServerMs:transport?.startedAtServerMs ?? 0, loopEnabled:next, loopStartBeats, loopEndBeats }); }}>LOOP</button>
           <span className={roomState === "live" ? "room-status live" : "room-status"}><i />{roomState === "live" ? "LIVE" : roomState.toUpperCase()}</span>
         </div>
       </header>
@@ -818,5 +889,6 @@ function Panel({ title, subtitle, children, className = "" }: { title: string; s
 }
 function DockHeader({ title, action }: { title: string; action: string }) { return <div className="dock-header"><strong>{title}</strong><button>{action}</button></div>; }
 function Knob({ label }: { label: string }) { return <div className="knob"><i /><span>{label}</span></div>; }
+function formatTransportTime(beats: number, bpm: number) { const seconds = Math.max(0, beats * 60 / Math.max(1, bpm)); const mins = Math.floor(seconds / 60); const secs = Math.floor(seconds % 60); const ms = Math.floor((seconds % 1) * 1000); return String(mins).padStart(2,"0") + ":" + String(secs).padStart(2,"0") + "." + String(ms).padStart(3,"0"); }
 function initials(name: string) { return name.trim().split(/\s+/).map(part => part[0]).join("").slice(0, 2).toUpperCase(); }
 function icon(windowName: WindowName) { return ({ Playlist: "▤", "Step Sequencer": "▦", "Piano Roll": "⌁", Mixer: "▥", Browser: "⌕", Synthesizer: "◉", Effects: "✦" } as Record<WindowName, string>)[windowName]; }
