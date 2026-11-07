@@ -1,6 +1,6 @@
 import type { BuiltInEffectType, EffectInstance } from "../../../packages/shared/src/effects";
 
-type EffectNode = { input: AudioNode; output: AudioNode; analyzer?: AnalyserNode; reduction?: DynamicsCompressorNode; dispose: () => void; setParameter: (key:string,value:unknown) => void };
+type EffectNode = { effectId?: string; input: AudioNode; output: AudioNode; analyzer?: AnalyserNode; reduction?: DynamicsCompressorNode; dispose: () => void; setParameter: (key:string,value:unknown) => void };
 
 const db = (value:number) => Math.pow(10, value / 20);
 const clamp = (v:number,min:number,max:number) => Math.max(min,Math.min(max,v));
@@ -121,8 +121,8 @@ export class AudioFxEngine {
     return {input,output,reduction:reductionNode,dispose:()=>{},setParameter:param};
   }
 
-  getAnalyzer(id:string): AnalyserNode | undefined { return this.chains.get(id)?.at(-1)?.analyzer; }\n\n  getGainReduction(id:string): number { return this.chains.get(id)?.find(node => node.reduction)?.reduction?.reduction ?? 0; }\n\n  createChain(id:string,effects:EffectInstance[]): AudioNode {
-    const nodes=effects.map(e=>{ const node=this.createEffect(e); if(e.type==="compressor" || e.type==="limiter") { /* reduction meter is attached below */ } return node; });\n    const analyzer=this.context.createAnalyser(); analyzer.fftSize=2048; analyzer.smoothingTimeConstant=.82;\n    if(nodes.length) nodes.at(-1)!.output.connect(analyzer);\n    if(nodes.length) { const last=nodes.at(-1) as EffectNode; last.analyzer=analyzer; const compressor=last.output; void compressor; }\n    this.chains.set(id,nodes);
+  getAnalyzer(id:string): AnalyserNode | undefined { return this.chains.get(id)?.at(-1)?.analyzer; }\n\n  getGainReduction(id:string, effectId?: string): number { return this.chains.get(id)?.find(node => node.reduction && (!effectId || node.effectId === effectId))?.reduction?.reduction ?? 0; }\n\n  createChain(id:string,effects:EffectInstance[]): AudioNode {
+    const nodes=effects.map(e=>{ const node=this.createEffect(e); node.effectId=e.id; return node; });\n    const analyzer=this.context.createAnalyser(); analyzer.fftSize=2048; analyzer.smoothingTimeConstant=.82;\n    if(nodes.length) nodes.at(-1)!.output.connect(analyzer);\n    if(nodes.length) { const last=nodes.at(-1) as EffectNode; last.analyzer=analyzer; const compressor=last.output; void compressor; }\n    this.chains.set(id,nodes);
     for(let i=0;i<nodes.length-1;i++) nodes[i].output.connect(nodes[i+1].input);
     return nodes.length?nodes[0].input:this.context.createGain();
   }
