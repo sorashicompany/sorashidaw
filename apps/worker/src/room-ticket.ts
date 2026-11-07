@@ -8,7 +8,7 @@ function base64Url(bytes: ArrayBuffer | Uint8Array): string {
 }
 
 function fromBase64Url(value: string): Uint8Array {
-  const padded = value.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((value.length + 3) % 4);
+  const padded = value.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((4 - (value.length % 4)) % 4);
   const binary = atob(padded);
   return Uint8Array.from(binary, char => char.charCodeAt(0));
 }
