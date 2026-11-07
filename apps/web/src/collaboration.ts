@@ -45,6 +45,7 @@ export function useBeatRoom() {
     let closed = false;
     let socket: WebSocket | null = null;
     let retryTimer: number | undefined;
+    let reconnectAttempt = 0;
 
     async function authenticate() {
       const response = await fetch("/api/auth/telegram", {
@@ -86,7 +87,10 @@ export function useBeatRoom() {
 
         socket = new WebSocket(socketUrl);
         socketRef.current = socket;
-        socket.onopen = () => !closed && setState("live");
+        socket.onopen = () => {
+          reconnectAttempt = 0;
+          if (!closed) setState("live");
+        };
         socket.onmessage = event => {
           try {
             const message = JSON.parse(event.data) as CollaborationEnvelope;
@@ -128,12 +132,16 @@ export function useBeatRoom() {
           if (closed) return;
           socketRef.current = null;
           setState("offline");
-          retryTimer = window.setTimeout(() => void connect(), 500);
+          const delay = Math.min(1000 * 2 ** reconnectAttempt, 15000);
+          reconnectAttempt += 1;
+          retryTimer = window.setTimeout(() => void connect(), delay);
         };
       } catch {
         if (closed) return;
         setState("error");
-        retryTimer = window.setTimeout(() => void connect(), 1000);
+        const delay = Math.min(1000 * 2 ** reconnectAttempt, 15000);
+        reconnectAttempt += 1;
+        retryTimer = window.setTimeout(() => void connect(), delay);
       }
     }
 
@@ -144,7 +152,7 @@ export function useBeatRoom() {
       socket?.close();
       socketRef.current = null;
     };
-  }, [initData]);
+  }, []);
 
   useEffect(() => {
     if (!roomTicket) return;
