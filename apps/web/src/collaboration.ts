@@ -160,7 +160,14 @@ export function useBeatRoom() {
     if (!identity || !ticket) return false;
     try {
       const response = await fetch("/api/room/history/" + encodeURIComponent(String(version)) + "?chatId=" + encodeURIComponent(String(identity.chatId)) + "&ticket=" + encodeURIComponent(ticket), { method:"POST" });
-      return response.ok;
+      if (!response.ok) return false;
+      const stateResponse = await fetch("/api/room/state?chatId=" + encodeURIComponent(String(identity.chatId)) + "&ticket=" + encodeURIComponent(ticket));
+      if (stateResponse.ok) {
+        const saved = await stateResponse.json() as { state?: unknown; version?: number };
+        if (saved.state && typeof saved.state === "object") setProjectState(saved.state);
+        setProjectVersion(Number(saved.version ?? projectVersion));
+      }
+      return true;
     } catch { return false; }
   }
 
