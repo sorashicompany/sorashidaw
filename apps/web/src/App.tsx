@@ -39,6 +39,82 @@ type Clip = {
 };
 
 type Marker = { id: string; position: number; label: string };
+type ChangePath = Array<string | { id: string }>;
+type SnapshotChange = { path: ChangePath; before: unknown; after: unknown };
+
+function cloneSnapshot<T>(value: T): T { return structuredClone(value); }
+function sameValue(a: unknown, b: unknown): boolean {
+  try { return JSON.stringify(a) === JSON.stringify(b); } catch { return false; }
+}
+function isIdArray(value: unknown): value is Array<{ id: string }> {
+  return Array.isArray(value) && value.every(item => item && typeof item === "object" && typeof (item as { id?: unknown }).id === "string");
+}
+function diffSnapshots(before: any, after: any, path: ChangePath = [], out: SnapshotChange[] = []): SnapshotChange[] {
+  if (sameValue(before, after)) return out;
+  if (isIdArray(before) && isIdArray(after)) {
+    const beforeMap = new Map(before.map(item => [item.id, item]));
+    const afterMap = new Map(after.map(item => [item.id, item]));
+    for (const item of before) if (!afterMap.has(item.id)) out.push({ path: [...path, { id: item.id }], before: cloneSnapshot(item), after: undefined });
+    for (const item of after) if (!beforeMap.has(item.id)) out.push({ path: [...path, { id: item.id }], before: undefined, after: cloneSnapshot(item) });
+    for (const id of new Set([...beforeMap.keys(), ...afterMap.keys()])) if (beforeMap.has(id) && afterMap.has(id)) diffSnapshots(beforeMap.get(id), afterMap.get(id), [...path, { id }], out);
+    return out;
+  }
+  if (Array.isArray(before) && Array.isArray(after) && before.length === after.length) {
+    for (let i = 0; i < before.length; i++) diffSnapshots(before[i], after[i], [...path, String(i)], out);
+    return out;
+  }
+  if (before && after && typeof before === "object" && typeof after === "object" && !Array.isArray(before) && !Array.isArray(after)) {
+    const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
+    for (const key of keys) diffSnapshots(before[key], after[key], [...path, key], out);
+    return out;
+  }
+  out.push({ path, before: cloneSnapshot(before), after: cloneSnapshot(after) });
+  return out;
+}
+function readSnapshotPath(root: any, path: ChangePath): unknown {
+  let current = root;
+  for (const token of path) {
+    if (current === undefined || current === null) return undefined;
+    if (typeof token === "string") current = current[token];
+    else current = Array.isArray(current) ? current.find(item => item?.id === token.id) : undefined;
+  }
+  return current;
+}
+function writeSnapshotPath(root: any, path: ChangePath, value: unknown, expected: unknown): void {
+  if (!path.length) return;
+  let current = root;
+  for (let i = 0; i < path.length - 1; i++) {
+    const token = path[i];
+    if (typeof token === "string") current = current[token];
+    else current = Array.isArray(current) ? current.find(item => item?.id === token.id) : undefined;
+    if (current === undefined) return;
+  }
+  const last = path[path.length - 1];
+  if (typeof last === "string") {
+    if (sameValue(current[last], expected)) current[last] = value;
+    return;
+  }
+  if (!Array.isArray(current)) return;
+  const index = current.findIndex(item => item?.id === last.id);
+  if (value === undefined) {
+    if (index >= 0 && sameValue(current[index], expected)) current.splice(index, 1);
+  } else if (index < 0) {
+    current.push(cloneSnapshot(value));
+  } else if (sameValue(current[index], expected)) {
+    current[index] = cloneSnapshot(value);
+  }
+}
+function applySnapshotChanges(current: any, changes: SnapshotChange[], direction: "undo" | "redo"): any {
+  const next = cloneSnapshot(current);
+  for (const change of changes) {
+    const expected = direction === "undo" ? change.after : change.before;
+    const value = direction === "undo" ? change.before : change.after;
+    writeSnapshotPath(next, change.path, value, expected);
+  }
+  return next;
+}
+
+
 type AutomationTarget = "volume" | "pan" | "filter.cutoff" | "synth.parameter" | "effect.parameter" | "send" | "master.parameter";
 type AutomationPoint = { id: string; position: number; value: number };
 type AutomationLane = { id: string; targetId: string; target: AutomationTarget; parameter: string; label: string; points: AutomationPoint[] };
@@ -192,7 +268,7 @@ export default function App() {
   const eqCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const masterTestOscRef = useRef<OscillatorNode | null>(null);
   const realAudioEngineRef = useRef<RealAudioEngine | null>(null);
-  const { state: roomState, presence, updatePresence, publishCursor, publish, publishTransport, transport, roomTicket, chatId, serverOffsetMs } = useBeatRoom();
+  const { state: roomState, presence, updatePresence, publishCursor, publish, publishTransport, transport, roomTicket, chatId, serverOffsetMs, projectState: savedProjectState, projectLoaded, saveProjectState, getProjectHistory, restoreProjectVersion } = useBeatRoom();
   const appliedOps = useRef(new Set<string>());
 
   const engineAutomation = (lane: AutomationLane, value: number) => {
