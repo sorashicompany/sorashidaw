@@ -1,80 +1,201 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useBeatRoom } from "./collaboration";
 import "./styles.css";
 
 const windows = ["Playlist", "Step Sequencer", "Piano Roll", "Mixer", "Browser", "Synthesizer", "Effects"] as const;
 type WindowName = (typeof windows)[number];
+type ClipKind = "audio" | "midi" | "pattern" | "loop";
 
-const initialSteps = [0, 3, 4, 7, 8, 10, 12, 15];
+type Track = {
+  id: string;
+  name: string;
+  color: string;
+  groupId?: string;
+  clips: Clip[];
+};
+
+type Clip = {
+  id: string;
+  name: string;
+  kind: ClipKind;
+  start: number;
+  length: number;
+  lane: number;
+  selected?: boolean;
+};
+
+type Marker = { id: string; position: number; label: string };
+type AutomationPoint = { id: string; position: number; value: number };
+
+const GRID = 16;
+const INITIAL_TRACKS: Track[] = [
+  { id: "drums", name: "DRUMS", color: "violet", clips: [
+    { id: "drums-1", name: "Kit Loop", kind: "pattern", start: 0, length: 16, lane: 0 },
+    { id: "drums-2", name: "Fill", kind: "loop", start: 20, length: 12, lane: 0 },
+  ]},
+  { id: "bass", name: "BASS", color: "cyan", clips: [
+    { id: "bass-1", name: "Sub Bass", kind: "midi", start: 4, length: 20, lane: 0 },
+  ]},
+  { id: "keys", name: "KEYS", color: "amber", clips: [
+    { id: "keys-1", name: "Piano", kind: "midi", start: 0, length: 28, lane: 0 },
+  ]},
+  { id: "synth", name: "SYNTH", color: "magenta", clips: [
+    { id: "synth-1", name: "Atmos Pad", kind: "audio", start: 16, length: 24, lane: 0 },
+  ]},
+];
 
 export default function App() {
   const [active, setActive] = useState<WindowName>("Playlist");
   const [playing, setPlaying] = useState(false);
   const [bpm, setBpm] = useState(128);
-  const [steps, setSteps] = useState(initialSteps);
   const [bar, setBar] = useState(1);
+  const [tracks, setTracks] = useState(INITIAL_TRACKS);
+  const [markers, setMarkers] = useState<Marker[]>([{ id: "m1", position: 0, label: "INTRO" }, { id: "m2", position: 32, label: "DROP" }]);
+  const [automation, setAutomation] = useState<AutomationPoint[]>([
+    { id: "a1", position: 0, value: 42 }, { id: "a2", position: 24, value: 76 }, { id: "a3", position: 40, value: 48 }
+  ]);
+  const [selectedClip, setSelectedClip] = useState<string | null>("drums-1");
+  const [clipboard, setClipboard] = useState<Clip | null>(null);
+  const [zoom, setZoom] = useState(1);
+  const [snap, setSnap] = useState(4);
+  const [grouped, setGrouped] = useState(false);
+  const [steps, setSteps] = useState([0, 3, 4, 7, 8, 10, 12, 15]);
   const { state: roomState, presence, updatePresence, publishCursor, publish } = useBeatRoom();
 
-  useEffect(() => {
-    updatePresence(active);
-  }, [active, updatePresence]);
+  useEffect(() => { updatePresence(active); }, [active, updatePresence]);
 
   useEffect(() => {
     if (!playing) return;
-    const timer = window.setInterval(() => setBar(current => current >= 8 ? 1 : current + 1), 60000 / bpm / 2);
+    const timer = window.setInterval(() => setBar(current => current >= 16 ? 1 : current + 1), 60000 / bpm / 2);
     return () => window.clearInterval(timer);
   }, [playing, bpm]);
 
   const online = presence.filter(user => user.status === "online");
   const currentUser = presence.find(user => user.status === "online");
-  const transportLabel = playing ? "STOP" : "PLAY";
-  const roomLabel = roomState === "live" ? "LIVE" : roomState.toUpperCase();
+
+  function emit(type: Parameters<typeof publish>[0], targetId: string, payload: Record<string, unknown>, trackId?: string) {
+    publish(type, targetId, payload, trackId);
+  }
+
+  function updateClip(id: string, patch: Partial<Clip>) {
+    setTracks(current => current.map(track => ({ ...track, clips: track.clips.map(clip => clip.id === id ? { ...clip, ...patch } : clip) })));
+    const track = tracks.find(item => item.clips.some(clip => clip.id === id));
+    emit("MOVE_CLIP", id, patch, track?.id);
+  }
+
+  function selectClip(id: string) {
+    setSelectedClip(id);
+    setTracks(current => current.map(track => ({ ...track, clips: track.clips.map(clip => ({ ...clip, selected: clip.id === id })) })));
+  }
+
+  function copyClip() {
+    const clip = tracks.flatMap(track => track.clips).find(item => item.id === selectedClip);
+    if (clip) setClipboard({ ...clip });
+  }
+
+  function pasteClip() {
+    if (!clipboard) return;
+    const trackId = tracks.find(track => track.clips.some(clip => clip.id === selectedClip))?.id ?? tracks[0].id;
+    const pasted: Clip = { ...clipboard, id: crypto.randomUUID(), start: clipboard.start + snap, selected: true };
+    setTracks(current => current.map(track => track.id === trackId ? { ...track, clips: [...track.clips, pasted] } : track));
+    setSelectedClip(pasted.id);
+    emit("PASTE_CLIP", pasted.id, pasted, trackId);
+  }
+
+  function duplicateClip() {
+    if (!selectedClip) return;
+    const source = tracks.flatMap(track => track.clips).find(item => item.id === selectedClip);
+    const trackId = tracks.find(track => track.clips.some(clip => clip.id === selectedClip))?.id;
+    if (!source || !trackId) return;
+    const copy: Clip = { ...source, id: crypto.randomUUID(), start: source.start + source.length, selected: true };
+    setTracks(current => current.map(track => track.id === trackId ? { ...track, clips: [...track.clips, copy] } : track));
+    setSelectedClip(copy.id);
+    emit("DUPLICATE_CLIP", copy.id, copy, trackId);
+  }
+
+  function deleteClip() {
+    if (!selectedClip) return;
+    const trackId = tracks.find(track => track.clips.some(clip => clip.id === selectedClip))?.id;
+    setTracks(current => current.map(track => ({ ...track, clips: track.clips.filter(clip => clip.id !== selectedClip) })));
+    emit("DELETE_CLIP", selectedClip, {}, trackId);
+    setSelectedClip(null);
+  }
+
+  function splitClip() {
+    const clip = tracks.flatMap(track => track.clips).find(item => item.id === selectedClip);
+    const trackId = tracks.find(track => track.clips.some(item => item.id === selectedClip))?.id;
+    if (!clip || !trackId || clip.length < 2) return;
+    const left: Clip = { ...clip, id: crypto.randomUUID(), length: Math.floor(clip.length / 2) };
+    const right: Clip = { ...clip, id: crypto.randomUUID(), start: clip.start + left.length, length: clip.length - left.length, selected: true };
+    setTracks(current => current.map(track => track.id === trackId ? { ...track, clips: [...track.clips.filter(item => item.id !== clip.id), left, right] } : track));
+    setSelectedClip(right.id);
+    emit("SPLIT_CLIP", clip.id, { left, right }, trackId);
+  }
+
+  function addClip(kind: ClipKind) {
+    const track = tracks[0];
+    const clip: Clip = { id: crypto.randomUUID(), name: kind === "audio" ? "Audio Clip" : kind === "midi" ? "MIDI Clip" : kind === "pattern" ? "Pattern" : "Loop", kind, start: snap, length: 8, lane: 0 };
+    setTracks(current => current.map(item => item.id === track.id ? { ...item, clips: [...item.clips, clip] } : item));
+    setSelectedClip(clip.id);
+    emit(kind === "audio" ? "ADD_AUDIO_CLIP" : kind === "midi" ? "ADD_MIDI_CLIP" : kind === "pattern" ? "ADD_PATTERN_CLIP" : "ADD_LOOP_CLIP", clip.id, clip, track.id);
+  }
+
+  function addTrack() {
+    const track: Track = { id: crypto.randomUUID(), name: "NEW TRACK", color: "violet", clips: [] };
+    setTracks(current => [...current, track]);
+    emit("ADD_TRACK", track.id, track);
+  }
+
+  function addMarker() {
+    const marker: Marker = { id: crypto.randomUUID(), position: Math.max(0, bar - 1) * 4, label: "MARKER" };
+    setMarkers(current => [...current, marker]);
+    emit("ADD_MARKER", marker.id, marker);
+  }
 
   function toggleStep(step: number) {
     setSteps(current => {
       const next = current.includes(step) ? current.filter(item => item !== step) : [...current, step];
-      publish("CHANGE_PATTERN", "kick", { step, enabled: next.includes(step) }, "drums");
+      emit("CHANGE_PATTERN", "kick", { step, enabled: next.includes(step) }, "drums");
       return next;
     });
   }
 
+  function moveSelected(delta: number) {
+    const clip = tracks.flatMap(track => track.clips).find(item => item.id === selectedClip);
+    if (!clip) return;
+    const nextStart = Math.max(0, clip.start + delta);
+    updateClip(clip.id, { start: nextStart });
+  }
+
+  function resizeSelected(delta: number) {
+    const clip = tracks.flatMap(track => track.clips).find(item => item.id === selectedClip);
+    if (!clip) return;
+    updateClip(clip.id, { length: Math.max(snap, clip.length + delta) });
+  }
+
+  const selected = tracks.flatMap(track => track.clips).find(clip => clip.id === selectedClip);
+
   return (
     <main className="daw">
       <header className="topbar">
-        <div className="brand">
-          <div className="brand-mark">S</div>
-          <div>
-            <strong>SORASHI DAW</strong>
-            <span>shared beat room</span>
-          </div>
-        </div>
-
-        <div className="project">
-          <button className="project-name">Untitled Beat <span>⌄</span></button>
-          <span className="save-state"><i /> Saved</span>
-        </div>
-
+        <div className="brand"><div className="brand-mark">S</div><div><strong>SORASHI DAW</strong><span>shared beat room</span></div></div>
+        <div className="project"><button className="project-name">Untitled Beat <span>⌄</span></button><span className="save-state"><i /> Saved</span></div>
         <div className="transport">
-          <button className="transport-button" onClick={() => setPlaying(!playing)}>{transportLabel}</button>
+          <button className="transport-button" onClick={() => setPlaying(value => !value)}>{playing ? "STOP" : "PLAY"}</button>
           <button className="transport-icon" onClick={() => setBar(1)}>■</button>
           <span className="tempo-label">BPM</span>
-          <input value={bpm} type="number" min="40" max="240" onChange={event => setBpm(Number(event.target.value))} />
+          <input value={bpm} type="number" min="40" max="240" onChange={event => { const value = Number(event.target.value); setBpm(value); emit("CHANGE_BPM", "project", { bpm: value }); }} />
           <span className="position">00:{String(bar).padStart(2, "0")}:00</span>
-          <span className={roomState === "live" ? "room-status live" : "room-status"}><i />{roomLabel}</span>
+          <span className={roomState === "live" ? "room-status live" : "room-status"}><i />{roomState === "live" ? "LIVE" : roomState.toUpperCase()}</span>
         </div>
       </header>
 
       <div className="toolbar">
-        <div className="tool-tabs">
-          {windows.map(windowName => (
-            <button key={windowName} className={active === windowName ? "tool-tab active" : "tool-tab"} onClick={() => setActive(windowName)}>
-              {icon(windowName)} {windowName}
-            </button>
-          ))}
-        </div>
+        <div className="tool-tabs">{windows.map(windowName => <button key={windowName} className={active === windowName ? "tool-tab active" : "tool-tab"} onClick={() => setActive(windowName)}>{icon(windowName)} {windowName}</button>)}</div>
         <div className="toolbar-right">
-          <span>4/4</span><span>120 bars</span><span>Snap 1/16</span>
-          <button className="small-button">⌘K</button>
+          <span>4/4</span><span>{tracks.length * 16} bars</span>
+          <label>Snap <select value={snap} onChange={event => { const value = Number(event.target.value); setSnap(value); emit("SET_GRID", "project", { snap: value }); }}><option value={1}>1/16</option><option value={2}>1/8</option><option value={4}>1/4</option><option value={8}>1/2</option></select></label>
+          <label>Zoom <input className="zoom-input" type="range" min="0.7" max="2" step="0.1" value={zoom} onChange={event => { const value = Number(event.target.value); setZoom(value); emit("SET_ZOOM", "playlist", { zoom: value }); }} /></label>
         </div>
       </div>
 
@@ -82,156 +203,98 @@ export default function App() {
         <aside className="left-dock">
           <DockHeader title="BROWSER" action="+" />
           <div className="browser-search">⌕ <span>Search sounds</span></div>
-          <div className="browser-section">
-            <span>PACKS</span>
-            {["Drums", "Bass", "Keys", "Synths", "Textures"].map(item => <button key={item}>› {item}</button>)}
-          </div>
-          <div className="browser-section sounds">
-            <span>RECENT</span>
-            {["Deep Kick", "Sub Bass 01", "Warm Piano", "Analog Pad", "Crisp Hat"].map(item => (
-              <button key={item} onDoubleClick={() => publish("ADD_SAMPLE", item, { name: item })}><b>♪</b>{item}</button>
-            ))}
-          </div>
+          <div className="browser-section"><span>CLIP TYPE</span>{(["audio", "midi", "pattern", "loop"] as ClipKind[]).map(kind => <button key={kind} onClick={() => addClip(kind)}>+ {kind.toUpperCase()}</button>)}</div>
+          <div className="browser-section"><span>PACKS</span>{["Drums", "Bass", "Keys", "Synths", "Textures"].map(item => <button key={item}>› {item}</button>)}</div>
+          <div className="browser-section sounds"><span>RECENT</span>{["Deep Kick", "Sub Bass 01", "Warm Piano", "Analog Pad", "Crisp Hat"].map(item => <button key={item} onDoubleClick={() => emit("ADD_SAMPLE", item, { name: item })}><b>♪</b>{item}</button>)}</div>
         </aside>
 
         <section className="center-stage" onPointerMove={event => publishCursor(event.clientX, event.clientY, active)}>
           <div className="stage-header">
-            <div>
-              <span className="eyebrow">ARRANGEMENT</span>
-              <strong>{active}</strong>
-            </div>
+            <div><span className="eyebrow">ARRANGEMENT</span><strong>Playlist / Timeline</strong></div>
             <div className="stage-controls">
-              <button>←</button><button>→</button><button>⌕</button><button>+</button>
+              <button onClick={copyClip} title="Copy">⧉</button><button onClick={pasteClip} title="Paste">▣</button><button onClick={duplicateClip} title="Duplicate">⧠</button><button onClick={splitClip} title="Split">╱</button><button onClick={deleteClip} title="Delete">⌫</button><button onClick={addMarker} title="Marker">◆</button><button onClick={addTrack} title="Track">+</button>
             </div>
           </div>
 
-          <div className="arrangement">
-            <div className="ruler">
-              <span>TRACK</span>
-              {Array.from({ length: 16 }, (_, index) => <b key={index}>{index + 1}</b>)}
+          <div className="arrangement-shell" style={{ "--zoom": zoom } as React.CSSProperties}>
+            <div className="timeline-ruler">
+              <div className="track-spacer">TRACKS</div>
+              <div className="ruler-grid">{Array.from({ length: 32 }, (_, index) => <b key={index}>{index + 1}</b>)}</div>
             </div>
-            {[
-              ["DRUMS", "beat", "D"],
-              ["BASS", "bass", "B"],
-              ["KEYS", "keys", "K"],
-              ["SYNTH", "synth", "S"]
-            ].map(([name, cls, letter], row) => (
-              <div className="arrangement-row" key={name}>
-                <div className="track-name"><i>{letter}</i><span>{name}</span><small>{row === 0 ? "808 + Kit" : row === 1 ? "Sub Bass" : row === 2 ? "Piano" : "Pad"}</small></div>
-                <div className="clip-lane">
-                  {Array.from({ length: 16 }, (_, index) => (
-                    <button
-                      key={index}
-                      className={"arr-clip " + cls + (index === bar - 1 ? " current" : "")}
-                      onClick={() => setBar(index + 1)}
-                    >
-                      {index % 4 === 0 ? (index / 4 + 1) : ""}
-                    </button>
-                  ))}
+
+            <div className="marker-row">
+              <div className="track-spacer">MARKERS</div>
+              <div className="marker-lane">
+                {markers.map(marker => <button key={marker.id} className="marker" style={{ left: marker.position * 2.5 + "%" }} onClick={() => setBar(Math.floor(marker.position / 4) + 1)}>{marker.label}</button>)}
+              </div>
+            </div>
+
+            {tracks.map(track => (
+              <div className="arrangement-row" key={track.id}>
+                <div className="track-name"><i>{track.name.slice(0, 1)}</i><span>{track.name}</span><small>{track.groupId ? "GROUPED" : "Audio / MIDI"}</small></div>
+                <div className="clip-lane" onDoubleClick={() => addClip("midi")}>
+                  {track.clips.map(clip => {
+                    const left = clip.start * 2.5;
+                    const width = Math.max(clip.length * 2.5, 3);
+                    return <button key={clip.id} className={"arr-clip " + clip.kind + (selectedClip === clip.id ? " selected" : "")} style={{ left: left + "%", width: width + "%" }} onClick={event => { event.stopPropagation(); selectClip(clip.id); }} onDoubleClick={event => { event.stopPropagation(); selectClip(clip.id); }} title={clip.name}>
+                      <span>{clip.name}</span><small>{clip.kind.toUpperCase()}</small>
+                    </button>;
+                  })}
                 </div>
               </div>
             ))}
+
+            <div className="automation-row">
+              <div className="track-name"><i>∿</i><span>AUTOMATION</span><small>Filter Cutoff</small></div>
+              <div className="automation-lane">
+                <svg viewBox="0 0 100 100" preserveAspectRatio="none">
+                  <polyline points={automation.map(point => point.position + "," + (100 - point.value)).join(" ")} />
+                </svg>
+                {automation.map(point => <button key={point.id} className="automation-point" style={{ left: point.position + "%", bottom: point.value + "%" }} />)}
+              </div>
+            </div>
+
+            {selected && <div className="clip-inspector">
+              <span>SELECTED</span><strong>{selected.name}</strong><small>{selected.kind.toUpperCase()} · {selected.length} beats · position {selected.start}</small>
+              <button onClick={() => resizeSelected(snap)}>+ length</button><button onClick={() => resizeSelected(-snap)}>− length</button><button onClick={() => moveSelected(-snap)}>← move</button><button onClick={() => moveSelected(snap)}>move →</button>
+            </div>}
           </div>
 
           <div className="lower-workspace">
             <Panel title="Step Sequencer" subtitle="Drums · 16 steps" className="sequencer-panel">
-              <div className="step-grid">
-                {["KICK", "SNARE", "HAT"].map((name, row) => (
-                  <div className="step-row" key={name}>
-                    <span>{name}</span>
-                    <div>
-                      {Array.from({ length: 16 }, (_, index) => {
-                        const activeStep = row === 0 ? steps.includes(index) : row === 1 ? [4, 12].includes(index) : [2, 6, 10, 14].includes(index);
-                        return <button key={index} className={activeStep ? "step on" : "step"} onClick={() => row === 0 && toggleStep(index)} />;
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <div className="step-grid">{["KICK", "SNARE", "HAT"].map((name, row) => <div className="step-row" key={name}><span>{name}</span><div>{Array.from({ length: 16 }, (_, index) => { const activeStep = row === 0 ? steps.includes(index) : row === 1 ? [4, 12].includes(index) : [2, 6, 10, 14].includes(index); return <button key={index} className={activeStep ? "step on" : "step"} onClick={() => row === 0 && toggleStep(index)} />; })}</div></div>)}</div>
               <div className="panel-footer"><span>{steps.length} kick hits</span><span>Velocity 100</span></div>
             </Panel>
-
             <Panel title="Piano Roll" subtitle="Bass · C minor" className="piano-panel">
-              <div className="piano-roll">
-                <div className="piano-keys">{["C", "B", "A", "G", "F", "E", "D"].map(key => <span key={key}>{key}</span>)}</div>
-                <div className="note-grid">
-                  {Array.from({ length: 12 }, (_, index) => <button key={index} className={"note note-" + index} onClick={() => publish("ADD_NOTE", "bass-note-" + index, { pitch: 60 + index, bar })} />)}
-                </div>
-              </div>
+              <div className="piano-roll"><div className="piano-keys">{["C", "B", "A", "G", "F", "E", "D"].map(key => <span key={key}>{key}</span>)}</div><div className="note-grid">{Array.from({ length: 12 }, (_, index) => <button key={index} className={"note note-" + index} onClick={() => emit("ADD_NOTE", "bass-note-" + index, { pitch: 60 + index, bar }, "bass")} />)}</div></div>
             </Panel>
           </div>
         </section>
 
         <aside className="right-dock">
           <DockHeader title="ROOM" action={online.length + " online"} />
-          <div className="room-users">
-            {online.map(user => (
-              <div className="room-user" key={user.actorId}>
-                <span className="user-avatar">{user.avatarUrl ? <img src={user.avatarUrl} alt="" /> : initials(user.firstName)}</span>
-                <div><strong>{user.username ? "@" + user.username : user.firstName}</strong><small>{user.area}</small></div>
-                <i className="online-dot" />
-              </div>
-            ))}
-            {online.length === 0 && <div className="empty-room">Waiting for collaborators…</div>}
-          </div>
-
+          <div className="room-users">{online.map(user => <div className="room-user" key={user.actorId}><span className="user-avatar">{user.avatarUrl ? <img src={user.avatarUrl} alt="" /> : initials(user.firstName)}</span><div><strong>{user.username ? "@" + user.username : user.firstName}</strong><small>{user.area}</small></div><i className="online-dot" /></div>)}{online.length === 0 && <div className="empty-room">Waiting for collaborators…</div>}</div>
           <DockHeader title="INSPECTOR" action="Reset" />
-          <div className="inspector">
-            <div className="inspector-title"><span className="track-icon">D</span><div><strong>Drums</strong><small>Shared channel</small></div></div>
-            {["Volume", "Pan", "Filter", "Send A"].map((name, index) => <div className="control" key={name}><span>{name}</span><div className="control-line"><i style={{ width: (72 - index * 11) + "%" }} /></div><b>{index === 0 ? "0.0 dB" : index === 1 ? "C" : index === 2 ? "42%" : "-18 dB"}</b></div>)}
-          </div>
-
-          <DockHeader title="SYNTH" action="Poly" />
-          <div className="mini-synth">
-            <div className="waveform">∿∿∿∿∿∿∿∿</div>
-            <div className="knobs"><Knob label="Cutoff" /><Knob label="Res" /><Knob label="Attack" /><Knob label="Release" /></div>
-          </div>
+          <div className="inspector"><div className="inspector-title"><span className="track-icon">D</span><div><strong>{selected?.name ?? "Drums"}</strong><small>{selected ? selected.kind.toUpperCase() : "Shared channel"}</small></div></div>{["Volume", "Pan", "Filter", "Send A"].map((name, index) => <div className="control" key={name}><span>{name}</span><div className="control-line"><i style={{ width: (72 - index * 11) + "%" }} /></div><b>{index === 0 ? "0.0 dB" : index === 1 ? "C" : index === 2 ? "42%" : "-18 dB"}</b></div>)}</div>
+          <DockHeader title="SYNTH" action="Poly" /><div className="mini-synth"><div className="waveform">∿∿∿∿∿∿∿∿</div><div className="knobs"><Knob label="Cutoff" /><Knob label="Res" /><Knob label="Attack" /><Knob label="Release" /></div></div>
         </aside>
       </div>
 
       <footer className="bottom-dock">
         <div className="mixer-title"><span>MIXER</span><small>5 channels</small></div>
-        {["Drums", "Bass", "Keys", "Synth", "Master"].map((channel, index) => (
-          <div className="mixer-channel" key={channel}>
-            <div className="channel-meter"><i style={{ height: (38 + index * 8) + "%" }} /></div>
-            <div className="channel-fader"><i style={{ bottom: (25 + index * 8) + "%" }} /></div>
-            <strong>{channel}</strong>
-            <small>{index === 4 ? "0.0 dB" : index === 0 ? "-1.2 dB" : "-3.0 dB"}</small>
-          </div>
-        ))}
+        {["Drums", "Bass", "Keys", "Synth", "Master"].map((channel, index) => <div className="mixer-channel" key={channel}><div className="channel-meter"><i style={{ height: (38 + index * 8) + "%" }} /></div><div className="channel-fader"><i style={{ bottom: (25 + index * 8) + "%" }} /></div><strong>{channel}</strong><small>{index === 4 ? "0.0 dB" : index === 0 ? "-1.2 dB" : "-3.0 dB"}</small></div>)}
         <div className="master-strip"><span>MASTER</span><b>-0.3 dB</b><div /></div>
       </footer>
 
-      <div className="remote-cursors">
-        {presence.filter(user => user.status === "online" && user.cursor && user.actorId !== currentUser?.actorId).map(user => (
-          <span key={user.actorId} className="remote-cursor" style={{ left: user.cursor!.x, top: user.cursor!.y }}>
-            <i />{user.username ? "@" + user.username : user.firstName}<small>{user.area}</small>
-          </span>
-        ))}
-      </div>
+      <div className="remote-cursors">{presence.filter(user => user.status === "online" && user.cursor && user.actorId !== currentUser?.actorId).map(user => <span key={user.actorId} className="remote-cursor" style={{ left: user.cursor!.x, top: user.cursor!.y }}><i />{user.username ? "@" + user.username : user.firstName}<small>{user.area}</small></span>)}</div>
     </main>
   );
 }
 
 function Panel({ title, subtitle, children, className = "" }: { title: string; subtitle: string; children: ReactNode; className?: string }) {
-  return <section className={"panel " + className}>
-    <header><div><strong>{title}</strong><small>{subtitle}</small></div><button>•••</button></header>
-    {children}
-  </section>;
+  return <section className={"panel " + className}><header><div><strong>{title}</strong><small>{subtitle}</small></div><button>•••</button></header>{children}</section>;
 }
-
-function DockHeader({ title, action }: { title: string; action: string }) {
-  return <div className="dock-header"><strong>{title}</strong><button>{action}</button></div>;
-}
-
-function Knob({ label }: { label: string }) {
-  return <div className="knob"><i /><span>{label}</span></div>;
-}
-
-function initials(name: string) {
-  return name.trim().split(/\s+/).map(part => part[0]).join("").slice(0, 2).toUpperCase();
-}
-
-function icon(windowName: WindowName) {
-  return ({ Playlist: "▤", "Step Sequencer": "▦", "Piano Roll": "⌁", Mixer: "▥", Browser: "⌕", Synthesizer: "◉", Effects: "✦" } as Record<WindowName, string>)[windowName];
-}
+function DockHeader({ title, action }: { title: string; action: string }) { return <div className="dock-header"><strong>{title}</strong><button>{action}</button></div>; }
+function Knob({ label }: { label: string }) { return <div className="knob"><i /><span>{label}</span></div>; }
+function initials(name: string) { return name.trim().split(/\s+/).map(part => part[0]).join("").slice(0, 2).toUpperCase(); }
+function icon(windowName: WindowName) { return ({ Playlist: "▤", "Step Sequencer": "▦", "Piano Roll": "⌁", Mixer: "▥", Browser: "⌕", Synthesizer: "◉", Effects: "✦" } as Record<WindowName, string>)[windowName]; }
