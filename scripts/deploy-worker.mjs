@@ -19,6 +19,7 @@ const file = ".nexora-secrets.json";
 writeFileSync(file, JSON.stringify(secrets), { mode: 0o600 });
 
 try {
+  execSync("pnpm --filter @nexoradaw/web build", { stdio: "inherit" });
   execSync(
     "npx wrangler deploy --config apps/worker/wrangler.jsonc --secrets-file .nexora-secrets.json",
     { stdio: "inherit" },
