@@ -79,12 +79,16 @@ export class BeatRoom extends DurableObject<RoomEnv> {
   async restoreProjectVersion(version: number): Promise<{ version: number; restoredFrom: number; updatedAt: string; state: unknown }> {
     const target = await this.ctx.storage.get<ProjectVersion>("project-history:" + version);
     if (!target) throw new Error("Project version not found");
-    const state = structuredClone(target.state);
-    const restored = await this.saveProjectState(state, undefined, true);
+    return this.restoreProjectState(target.state, version);
+  }
+
+  async restoreProjectState(state: unknown, restoredFrom: number): Promise<{ version: number; restoredFrom: number; updatedAt: string; state: unknown }> {
+    const restoredState = structuredClone(state);
+    const restored = await this.saveProjectState(restoredState, undefined, true);
     const updatedAt = new Date().toISOString();
-    const restoredVersion = restored.historyVersion ?? version;
-    this.broadcast({ type: "sync.project.restore", version: restoredVersion, restoredFrom: version, state } satisfies CollaborationEnvelope);
-    return { version: restoredVersion, restoredFrom: version, updatedAt, state };
+    const restoredVersion = restored.historyVersion ?? restored.version;
+    this.broadcast({ type: "sync.project.restore", version: restoredVersion, restoredFrom, state: restoredState } satisfies CollaborationEnvelope);
+    return { version: restoredVersion, restoredFrom, updatedAt, state: restoredState };
   }
 
   private async hashState(state: unknown): Promise<string> {
