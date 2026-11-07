@@ -58,7 +58,7 @@ async function connectRoomSocket(request: Request, env: Env): Promise<Response> 
     return stub.fetch(new Request(target, { headers }));
   } catch (error) { return json({ error: error instanceof Error ? error.message : "Room authentication failed" }, 401); }
 }
-function json(data: unknown, status = 200) { return new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json; charset=utf-8" } }); }
+function json(data: unknown, status = 200) { return new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } }); }
 
 
 
