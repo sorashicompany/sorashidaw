@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { isCollaborationOperation } from "../../../packages/shared/src/collaboration";
 import type { CollaborationEnvelope, CollaborationOperation, PresenceState } from "../../../packages/shared/src/collaboration";
 
 export interface RoomEnv { BEAT_ROOM: DurableObjectNamespace<BeatRoom>; }
@@ -75,12 +76,15 @@ export class BeatRoom extends DurableObject<RoomEnv> {
     return index.map(({ hash: _hash, ...meta }) => meta);
   }
 
-  async restoreProjectVersion(version: number): Promise<{ version: number; restoredFrom: number; updatedAt: string }> {
+  async restoreProjectVersion(version: number): Promise<{ version: number; restoredFrom: number; updatedAt: string; state: unknown }> {
     const target = await this.ctx.storage.get<ProjectVersion>("project-history:" + version);
     if (!target) throw new Error("Project version not found");
-    const restored = await this.saveProjectState(structuredClone(target.state), undefined, true);
+    const state = structuredClone(target.state);
+    const restored = await this.saveProjectState(state, undefined, true);
     const updatedAt = new Date().toISOString();
-    return { version: restored.historyVersion ?? version, restoredFrom: version, updatedAt };
+    const restoredVersion = restored.historyVersion ?? version;
+    this.broadcast({ type: "sync.project.restore", version: restoredVersion, restoredFrom: version, state } satisfies CollaborationEnvelope);
+    return { version: restoredVersion, restoredFrom: version, updatedAt, state };
   }
 
   private async hashState(state: unknown): Promise<string> {
@@ -109,6 +113,10 @@ export class BeatRoom extends DurableObject<RoomEnv> {
       return;
     }
 
+    if (!isCollaborationOperation(value)) {
+      ws.send(JSON.stringify({ type: "sync.error", message: "Invalid collaboration operation" }));
+      return;
+    }
     const operation = value as CollaborationOperation;
     if (JSON.stringify(operation).length > MAX_OPERATION_PAYLOAD_BYTES) {
       ws.send(JSON.stringify({ type: "sync.error", opId: operation?.opId, message: "Operation payload too large" }));
@@ -119,10 +127,15 @@ export class BeatRoom extends DurableObject<RoomEnv> {
       return;
     }
 
+    const existingSequence = await this.findOperationSequence(operation.opId);
+    if (existingSequence !== null) {
+      ws.send(JSON.stringify({ type: "sync.ack", opId: operation.opId, sequence: existingSequence } satisfies CollaborationEnvelope));
+      return;
+    }
     const sequence = await this.nextSequence();
+    await this.appendOperation(sequence, operation);
     const envelope: CollaborationEnvelope = { type: "sync.operation", sequence, operation };
     this.broadcast(envelope);
-    await this.appendOperation(sequence, operation);
     ws.send(JSON.stringify({ type: "sync.ack", opId: operation.opId, sequence } satisfies CollaborationEnvelope));
   }
 
@@ -143,7 +156,13 @@ export class BeatRoom extends DurableObject<RoomEnv> {
   private async nextSequence() { const current = (await this.ctx.storage.get<number>("sequence")) ?? 0; const next = current + 1; await this.ctx.storage.put("sequence", next); return next; }
   private async appendOperation(sequence: number, operation: CollaborationOperation) {
     const log = (await this.ctx.storage.get<Array<{ sequence: number; operation: CollaborationOperation }>>("operations")) ?? [];
-    log.push({ sequence, operation }); await this.ctx.storage.put("operations", log.slice(-MAX_RECENT_OPERATIONS));
+    log.push({ sequence, operation });
+    await this.ctx.storage.put("operations", log.slice(-MAX_RECENT_OPERATIONS));
+  }
+  private async findOperationSequence(opId: string): Promise<number | null> {
+    const log = (await this.ctx.storage.get<Array<{ sequence: number; operation: CollaborationOperation }>>("operations")) ?? [];
+    const found = log.find(item => item.operation.opId === opId);
+    return found?.sequence ?? null;
   }
   private async readOperationsAfter(sequence: number) {
     const log = (await this.ctx.storage.get<Array<{ sequence: number; operation: CollaborationOperation }>>("operations")) ?? [];
