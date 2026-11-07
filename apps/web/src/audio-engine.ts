@@ -70,10 +70,6 @@ export class RealAudioEngine {
   seek(step = 0): void {
     this.node?.port.postMessage({ type: "seek", step });
   }
-}
-
-function currentFrameFallback(context: AudioContext): number { return Math.floor(context.currentTime * context.sampleRate); }
-
   setAutomationValue(target: string, parameter: string, value: number): void {
     if (target === "volume") {
       this.masterGain?.gain.setTargetAtTime(Math.pow(10, (value - 100) * 0.6 / 20), this.context.currentTime, 0.012);
@@ -90,3 +86,4 @@ function currentFrameFallback(context: AudioContext): number { return Math.floor
     }
     this.node?.port.postMessage({ type: "automation", target, parameter, value });
   }
+}
