@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useBeatRoom } from "./collaboration";
 import "./styles.css";
 import { WAVETABLES, SYNTH_PRESETS, type SynthState } from "../../../packages/shared/src/synth";
+type MidiCc = { controller: number; value: number; channel: number };
 
 const windows = ["Playlist", "Step Sequencer", "Piano Roll", "Mixer", "Browser", "Synthesizer", "Effects"] as const;
 type WindowName = (typeof windows)[number];
@@ -90,6 +91,11 @@ export default function App() {
   const [scaleMode, setScaleMode] = useState("minor");
   const [synth, setSynth] = useState<SynthState>(INITIAL_SYNTH);
   const [synthTab, setSynthTab] = useState("OSC");
+  const [midiInputs, setMidiInputs] = useState<string[]>([]);
+  const [midiEnabled, setMidiEnabled] = useState(false);
+  const [midiChannel, setMidiChannel] = useState(1);
+  const [midiCC, setMidiCC] = useState<MidiCc[]>([]);
+  const [midiHeld, setMidiHeld] = useState<number[]>([]);
   const { state: roomState, presence, updatePresence, publishCursor, publish, events } = useBeatRoom();
   const appliedOps = useRef(new Set<string>());
 
@@ -102,6 +108,22 @@ export default function App() {
       .then(result => setDrumAssets(result.assets))
       .catch(() => undefined);
   }, [roomTicket, chatId]);
+
+  useEffect(() => {
+    for (const event of events) {
+      if (event.type !== "sync.operation") continue;
+      const op = event.operation;
+      if (op.type === "MIDI_NOTE_ON") {
+        const note = Number(op.payload.note);
+        setMidiHeld(prev => prev.includes(note) ? prev : [...prev, note]);
+      } else if (op.type === "MIDI_NOTE_OFF") {
+        const note = Number(op.payload.note);
+        setMidiHeld(prev => prev.filter(n => n !== note));
+      } else if (op.type === "SET_MIDI_CC") {
+        setMidiCC(prev => [...prev.filter(cc => cc.controller !== Number(op.payload.controller)), { controller:Number(op.payload.controller), value:Number(op.payload.value), channel:Number(op.payload.channel) }].slice(-32));
+      }
+    }
+  }, [events]);
 
   useEffect(() => {
     for (const event of events) {
@@ -280,6 +302,26 @@ export default function App() {
     emit("ADD_PATTERN_CLIP", clip.id, clip, "drums");
   }
 
+  function emitMidi(type: "MIDI_NOTE_ON" | "MIDI_NOTE_OFF" | "SET_MIDI_CC", payload: Record<string, unknown>) {
+    publish(type, "midi", payload, "midi");
+  }
+  function handleMidiMessage(data: Uint8Array) {
+    const status = data[0] & 0xf0; const channel = (data[0] & 0x0f) + 1;
+    if (channel !== midiChannel) return;
+    const note = data[1]; const value = data[2];
+    if (status === 0x90 && value > 0) { setMidiHeld(prev => prev.includes(note) ? prev : [...prev, note]); emitMidi("MIDI_NOTE_ON", { note, velocity:value, channel }); }
+    else if (status === 0x80 || (status === 0x90 && value === 0)) { setMidiHeld(prev => prev.filter(n=>n!==note)); emitMidi("MIDI_NOTE_OFF", { note, channel }); }
+    else if (status === 0xb0) { setMidiCC(prev => [...prev.filter(cc=>cc.controller!==note), {controller:note,value,channel}].slice(-32)); emitMidi("SET_MIDI_CC", { controller:note, value, channel }); }
+  }
+  function connectMidi() {
+    if (!navigator.requestMIDIAccess) return;
+    void navigator.requestMIDIAccess().then(access => {
+      const names = Array.from(access.inputs.values()).map(input => input.name || "MIDI Input");
+      setMidiInputs(names); setMidiEnabled(true);
+      access.inputs.forEach(input => { input.onmidimessage = event => { if (event.data) handleMidiMessage(new Uint8Array(event.data)); }; });
+    }).catch(() => setMidiEnabled(false));
+  }
+
   function setSynthParameter(path: string, value: unknown) {
     setSynth(current => {
       const next = structuredClone(current) as SynthState;
@@ -437,6 +479,10 @@ export default function App() {
 {(synthTab==="PRESETS") && <div className="synth-section preset-list"><h4>PRESETS</h4>{SYNTH_PRESETS.length ? SYNTH_PRESETS.map(p=><button key={p.id}>{p.name}</button>) : <div className="empty-room">Preset library ready for expansion</div>}</div>}
 </div>
 <div className="synth-noise"><label><input type="checkbox" checked={synth.noise.enabled} onChange={e=>setSynthParameter("noise.enabled",e.target.checked)}/> NOISE</label><span>VOL {synth.noise.volume} dB</span><input type="range" min="-60" max="0" value={synth.noise.volume} onChange={e=>setSynthParameter("noise.volume",Number(e.target.value))}/><span>COLOR {synth.noise.color}</span><input type="range" min="0" max="100" value={synth.noise.color} onChange={e=>setSynthParameter("noise.color",Number(e.target.value))}/></div>
+</Panel>
+            <Panel title="MIDI Engine" subtitle={midiEnabled ? "Browser MIDI · live" : "Browser MIDI · ready"} className="midi-panel">
+<div className="midi-toolbar"><button className={midiEnabled?"active":""} onClick={connectMidi}>{midiEnabled?"MIDI CONNECTED":"ENABLE MIDI"}</button><label>CHANNEL <select value={midiChannel} onChange={e=>setMidiChannel(Number(e.target.value))}>{Array.from({length:16},(_,i)=><option key={i+1} value={i+1}>{i+1}</option>)}</select></label><span>{midiInputs.length ? midiInputs.join(", ") : "No MIDI device selected"}</span></div>
+<div className="midi-content"><div className="midi-keyboard">{Array.from({length:24},(_,i)=>i+48).map(note=><button key={note} className={midiHeld.includes(note)?"held":""} onMouseDown={()=>{setMidiHeld(prev=>prev.includes(note)?prev:[...prev,note]);emitMidi("MIDI_NOTE_ON",{note,velocity:100,channel:midiChannel})}} onMouseUp={()=>{setMidiHeld(prev=>prev.filter(n=>n!==note));emitMidi("MIDI_NOTE_OFF",{note,channel:midiChannel})}}>{["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"][note%12]}{Math.floor(note/12)-1}</button>)}</div><div className="midi-monitor"><div><b>HELD NOTES</b><span>{midiHeld.length ? midiHeld.map(n=>n+"").join(" · ") : "—"}</span></div><div><b>CC</b><span>{midiCC.length ? midiCC.slice(-6).map(cc=>"CC"+cc.controller+" "+cc.value).join(" · ") : "—"}</span></div><div><b>INPUTS</b><span>{midiInputs.length ? midiInputs.join(" · ") : "Browser Web MIDI unavailable or not connected"}</span></div></div></div>
 </Panel>
             <Panel title="Piano Roll" subtitle="MIDI · C minor" className="piano-panel">
   <div className="piano-toolbar"><div className="piano-tools"><button onClick={deleteMidiNotes}>Delete</button><button onClick={copyMidiNotes}>Copy</button><button onClick={pasteMidiNotes}>Paste</button><button onClick={duplicateMidiNotes}>Duplicate</button></div><label>Snap <select value={pianoSnap} onChange={event => setPianoSnap(Number(event.target.value))}><option value={0.25}>1/16</option><option value={0.5}>1/8</option><option value={1}>1/4</option><option value={2}>1/2</option></select></label><label>Scale <select value={scaleRoot} onChange={event => setScaleRoot(Number(event.target.value))}>{["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"].map((n,i)=><option key={n} value={i}>{n}</option>)}</select><select value={scaleMode} onChange={event => setScaleMode(event.target.value)}><option value="minor">minor</option><option value="major">major</option></select></label><label>Zoom <input type="range" min="0.6" max="2.5" step="0.1" value={pianoZoom} onChange={event => setPianoZoom(Number(event.target.value))}/></label></div>
