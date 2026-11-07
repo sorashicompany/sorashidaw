@@ -28,7 +28,7 @@ export class AudioFxEngine {
     dry.gain.value=1-wet; wetGain.gain.value=wet;
     input.connect(dry); dry.connect(output);
     let processor: AudioNode=input;
-    let eqFilters: BiquadFilterNode[] = [];
+    let eqFilters: BiquadFilterNode[] = [];\n    let reductionNode: DynamicsCompressorNode | undefined;
     wetGain.connect(output);
 
     const bypass=()=>{ dry.gain.value=effect.bypass?1:1-wet; wetGain.gain.value=effect.bypass?0:wet; };
@@ -67,7 +67,7 @@ export class AudioFxEngine {
         break;
       }
       case "compressor": {
-        const n=c.createDynamicsCompressor(); n.threshold.value=clamp(Number(p.threshold??-18),-100,0); n.ratio.value=clamp(Number(p.ratio??4),1,20); n.attack.value=clamp(Number(p.attack??.01),0,1); n.release.value=clamp(Number(p.release??.15),0,1); n.knee.value=clamp(Number(p.knee??12),0,40); output.gain.value=db(Number(p.makeup??0)); input.connect(n); n.connect(wetGain); processor=n; break;
+        const n=c.createDynamicsCompressor(); n.threshold.value=clamp(Number(p.threshold??-18),-100,0); n.ratio.value=clamp(Number(p.ratio??4),1,20); n.attack.value=clamp(Number(p.attack??.01),0,1); n.release.value=clamp(Number(p.release??.15),0,1); n.knee.value=clamp(Number(p.knee??12),0,40); output.gain.value=db(Number(p.makeup??0)); input.connect(n); n.connect(wetGain); reductionNode=n; processor=n; break;
       }
       case "limiter": {
         const n=c.createDynamicsCompressor(); n.threshold.value=Number(p.threshold??-1); n.ratio.value=20; n.attack.value=.001; n.release.value=Number(p.release??.08); n.knee.value=0; input.connect(n); n.connect(wetGain); processor=n; break;
@@ -118,7 +118,7 @@ export class AudioFxEngine {
       }
     }
     wetGain.connect(output); bypass();
-    return {input,output,dispose:()=>{},setParameter:param};
+    return {input,output,reduction:reductionNode,dispose:()=>{},setParameter:param};
   }
 
   getAnalyzer(id:string): AnalyserNode | undefined { return this.chains.get(id)?.at(-1)?.analyzer; }\n\n  getGainReduction(id:string): number { return this.chains.get(id)?.find(node => node.reduction)?.reduction?.reduction ?? 0; }\n\n  createChain(id:string,effects:EffectInstance[]): AudioNode {
