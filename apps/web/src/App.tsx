@@ -65,4 +65,4 @@ export default function App() {
 function Panel({title,sub,children,cls=""}:{title:string,sub:string,children:React.ReactNode,cls?:string}) {
   return <section className={"panel "+cls}><header><div><h2>{title}</h2><small>{sub}</small></div><button>•••</button></header>{children}</section>;
 }
-function initials(name:string){return name.trim().split(/\\s+/).map(x=>x[0]).join("").slice(0,2).toUpperCase()}\nfunction icon(t:string){return ({Playlist:"▤","Step Sequencer":"▦","Piano Roll":"⌁",Mixer:"▥",Browser:"⌕",Synthesizer:"◉",Effects:"✦"} as Record<string,string>)[t]}
+function initials(name:string){return name.trim().split(/\s+/).map(x=>x[0]).join("").slice(0,2).toUpperCase()}\nfunction icon(t:string){return ({Playlist:"▤","Step Sequencer":"▦","Piano Roll":"⌁",Mixer:"▥",Browser:"⌕",Synthesizer:"◉",Effects:"✦"} as Record<string,string>)[t]}
