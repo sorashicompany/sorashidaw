@@ -437,6 +437,20 @@ export default function App() {
     }
   }
 
+  function updateMasterEqBand(effectId: string, bandId: string, patch: Partial<ParametricEqBand>) {
+    setMasterEffects(current => current.map(effect => {
+      if (effect.id !== effectId) return effect;
+      const bands = getEqBands(effect).map(band => band.id === bandId ? { ...band, ...patch } : band);
+      return { ...effect, params: { ...effect.params, bands: JSON.stringify(bands) } };
+    }));
+    const effect = masterEffects.find(item => item.id === effectId);
+    if (effect) {
+      const bands = getEqBands(effect).map(band => band.id === bandId ? { ...band, ...patch } : band);
+      audioFxRef.current?.setEffectParameter("master-channel", effectId, "bands", JSON.stringify(bands));
+      publish("SET_EFFECT_PARAMETER", "masterfx:" + effectId, { key: "params.bands", value: JSON.stringify(bands) }, "master");
+    }
+  }
+
   function addMasterEffect(type: BuiltInEffectType) {
     const definition = BUILT_IN_EFFECTS.find(item => item.type === type);
     if (!definition) return;
@@ -731,7 +745,7 @@ export default function App() {
   <div className="master-browser">{["parametric-eq","compressor","saturation","reverb","limiter"].map(type=>{const item=BUILT_IN_EFFECTS.find(effect=>effect.type===type); return item ? <button key={type} onClick={()=>addMasterEffect(type as BuiltInEffectType)}>+ {item.name}</button> : null;})}</div>
   <div className="master-rack">{masterEffects.map((effect,index)=><div className={"master-effect "+(effect.bypass?"bypassed":"")} key={effect.id}>
     <div className="effect-head"><b>{index+1}. {effect.name}</b><span>{effect.type}</span><button onClick={()=>updateMasterEffect(effect.id,{bypass:!effect.bypass})}>{effect.bypass?"BYP":"ON"}</button><button onClick={()=>moveMasterEffect(effect.id,-1)}>↑</button><button onClick={()=>moveMasterEffect(effect.id,1)}>↓</button><button onClick={()=>removeMasterEffect(effect.id)}>×</button></div>
-    <div className="effect-params">{Object.entries(effect.params).filter(([,value])=>typeof value==="number").map(([key,value])=><label key={key}><span>{key.replace(/([A-Z])/g," $1")}</span><input type="range" min={key==="threshold"||key==="makeup"?-60:key==="ratio"?1:key==="attack"||key==="release"?0:0} max={key==="threshold"?0:key==="ratio"?20:key==="attack"||key==="release"?1:key==="makeup"?24:100} step={key==="ratio"?0.1:key==="attack"||key==="release"?0.001:0.1} value={Number(value)} onChange={e=>updateMasterEffectParam(effect.id,key,Number(e.target.value))}/><b>{Number(value).toFixed(2)}</b></label>)}</div>
+    {effect.type==="parametric-eq" ? <div className="master-eq-bands">{getEqBands(effect).map((band,index)=><div className="master-eq-band" key={band.id}><b>{index+1}</b><label>FREQ<input type="number" min="20" max="20000" value={Math.round(band.frequency)} onChange={e=>updateMasterEqBand(effect.id,band.id,{frequency:Number(e.target.value)})}/></label><label>GAIN<input type="number" min="-24" max="24" step=".1" value={band.gain} onChange={e=>updateMasterEqBand(effect.id,band.id,{gain:Number(e.target.value)})}/></label><label>Q<input type="number" min=".05" max="30" step=".01" value={band.q} onChange={e=>updateMasterEqBand(effect.id,band.id,{q:Number(e.target.value)})}/></label></div>)}</div> : <div className="effect-params">{Object.entries(effect.params).filter(([,value])=>typeof value==="number").map(([key,value])=><label key={key}><span>{key.replace(/([A-Z])/g," $1")}</span><input type="range" min={key==="threshold"||key==="makeup"?-60:key==="ratio"?1:key==="attack"||key==="release"?0:0} max={key==="threshold"?0:key==="ratio"?20:key==="attack"||key==="release"?1:key==="makeup"?24:100} step={key==="ratio"?0.1:key==="attack"||key==="release"?0.001:0.1} value={Number(value)} onChange={e=>updateMasterEffectParam(effect.id,key,Number(e.target.value))}/><b>{Number(value).toFixed(2)}</b></label>)}</div>}
   </div>)}</div>
 </Panel>
 <Panel title="Effects" subtitle="real-time Web Audio processing · shared rack" className="effects-panel">
