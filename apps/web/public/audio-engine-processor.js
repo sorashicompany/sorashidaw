@@ -4,17 +4,23 @@ class SorashiAudioProcessor extends AudioWorkletProcessor {
     this.playing = false;
     this.bpm = 128;
     this.step = 0;
-    this.nextStepFrame = 0;
+    this.nextStepFrame = 0;\n    this.startAtFrame = 0;\n    this.positionBeats = 0;
     this.channels = [];
     this.notes = [];
     this.voices = [];
     this.port.onmessage = event => {
       const message = event.data;
       if (message.type === "transport") {
-        this.playing = message.playing;
         this.bpm = Math.max(40, Math.min(240, Number(message.bpm) || 128));
-        if (this.playing && !message.resume) this.nextStepFrame = currentFrame;
-        if (!this.playing) this.voices.length = 0;
+        this.positionBeats = Number(message.positionBeats || 0);
+        this.startAtFrame = Number(message.startAtFrame || currentFrame);
+        this.playing = !message.startAtFrame && Boolean(message.playing);
+        if (message.startAtFrame && message.playing) this.playing = false;
+        if (this.playing) {
+          this.step = Math.floor(this.positionBeats * 4);
+          this.nextStepFrame = currentFrame;
+        }
+        if (!message.playing) this.voices.length = 0;
       }
       if (message.type === "state") {
         this.channels = message.channels || [];
@@ -77,7 +83,7 @@ class SorashiAudioProcessor extends AudioWorkletProcessor {
             this.voices.push({ type: "tone", age: 0, amp: Math.max(0.01, Number(note.velocity || 100) / 127 * 0.12), freq, release: Math.max(0.05, Number(note.length || 1) * 60 / this.bpm / 4) });
           }
         }
-        this.step++;
+        this.step++;\n        this.positionBeats = this.step / 4;
         this.nextStepFrame += framesPerStep;
         if (this.step % 16 === 0) this.port.postMessage({ type: "bar", bar: Math.floor(this.step / 16) + 1 });
       }
