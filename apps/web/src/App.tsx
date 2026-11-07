@@ -158,7 +158,6 @@ export default function App() {
     const payload = { playing:true, bpm, positionBeats: transport ? localTransportPosition() : transportPosition, startedAtServerMs:startAtServerMs, loopEnabled, loopStartBeats, loopEndBeats };
     publishTransport(payload);
     setPlaying(true);
-    await engine.scheduleTransport(true, bpm, engine.context.currentTime + 0.35, payload.positionBeats, loopEnabled, loopStartBeats, loopEndBeats);
   };
 
   const publishPause = async () => {
@@ -166,7 +165,6 @@ export default function App() {
     const engine = ensureAudioEngine();
     publishTransport({ playing:false, bpm, positionBeats:position, startedAtServerMs:0, loopEnabled, loopStartBeats, loopEndBeats });
     setPlaying(false);
-    await engine.setPlaying(false, bpm, position);
     setTransportPosition(position);
   };
 
@@ -176,7 +174,6 @@ export default function App() {
     setPlaying(false);
     setTransportPosition(0);
     setBar(1);
-    engine.stop();
   };
 
   const togglePlayback = async () => {
@@ -192,6 +189,23 @@ export default function App() {
     setLoopStartBeats(transport.loopStartBeats);
     setLoopEndBeats(transport.loopEndBeats);
   }, [transport]);
+  
+  useEffect(() => {
+    if (!transport) return;
+    const engine = ensureAudioEngine();
+    engine.setState(transport.bpm, drumChannels, pianoNotes);
+    void engine.setMasterChain(masterEffects).then(() => {
+      if (transport.playing) {
+        const delayMs = Math.max(20, transport.startedAtServerMs - (Date.now() + serverOffsetMs));
+        void engine.scheduleTransport(true, transport.bpm, engine.context.currentTime + delayMs / 1000, transport.positionBeats, transport.loopEnabled, transport.loopStartBeats, transport.loopEndBeats);
+      } else if (transport.positionBeats === 0) {
+        engine.stop();
+      } else {
+        void engine.setPlaying(false, transport.bpm, transport.positionBeats);
+      }
+    });
+  }, [transport?.revision]);
+
 
   useEffect(() => {
     const tick = () => {
