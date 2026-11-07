@@ -1,4 +1,4 @@
-# Sorashi DAW
+# Nexora DAW
 
 A multiplayer DAW delivered as a Telegram Mini App.
 
@@ -13,7 +13,7 @@ The product model is:
 - No email/password registration.
 - Client-supplied Telegram IDs are never trusted as authentication proof.
 - Cloudflare Worker as the secure API/authentication boundary.
-- Supabase schema prepared as the durable relational database target; the current runtime keeps the active Beat Room snapshot/history in the Durable Object until the dedicated `sorashidaw` Supabase project is provisioned.
+- Supabase schema prepared as the durable relational database target; the current runtime keeps the active Beat Room snapshot/history in the Durable Object until the dedicated `nexoradaw` Supabase project is provisioned.
 - Client-side Web Audio for audio rendering.
 - Shared domain contracts for future real-time collaboration.
 
@@ -49,7 +49,7 @@ The Worker is the server-side boundary for Telegram validation and future room/s
 
 ## Supabase
 
-Use a dedicated Sorashi DAW Supabase project. Do not point this application at an unrelated existing project.
+Use a dedicated Nexora DAW Supabase project. Do not point this application at an unrelated existing project.
 
 ## Development
 
@@ -209,7 +209,7 @@ Supabase is the durable relational application database schema.
 - `beat_project_versions`.
 - `beat_project_metadata`.
 
-The dedicated new `sorashidaw` Supabase project is still a deployment prerequisite. Until it exists, the runtime must not be pointed at an unrelated existing production project.
+The dedicated new `nexoradaw` Supabase project is still a deployment prerequisite. Until it exists, the runtime must not be pointed at an unrelated existing production project.
 
 ### Storage
 
