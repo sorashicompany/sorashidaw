@@ -23,9 +23,10 @@ class SorashiAudioProcessor extends AudioWorkletProcessor {
         this.loopEnabled = Boolean(message.loopEnabled);
         this.loopStartBeats = Number(message.loopStartBeats || 0);
         this.loopEndBeats = Math.max(this.loopStartBeats + 1, Number(message.loopEndBeats || 64));
-        this.startAtFrame = Number(message.startAtFrame || currentFrame);
-        this.playing = !message.startAtFrame && Boolean(message.playing);
-        if (message.startAtFrame && message.playing) this.playing = false;
+        this.startAtFrame = message.startDelaySeconds
+          ? currentFrame + Math.max(0, Number(message.startDelaySeconds)) * sampleRate
+          : Number(message.startAtFrame || 0);
+        this.playing = Boolean(message.playing) && !message.startDelaySeconds && !message.startAtFrame;
         if (this.playing) {
           this.step = Math.floor(this.positionBeats * 4);
           this.nextStepFrame = currentFrame;
@@ -84,6 +85,12 @@ class SorashiAudioProcessor extends AudioWorkletProcessor {
 
     for (let i = 0; i < out[0].length; i++) {
       const frame = currentFrame + i;
+      if (!this.playing && this.startAtFrame > 0 && frame >= this.startAtFrame) {
+        this.playing = true;
+        this.step = Math.floor(this.positionBeats * 4);
+        this.nextStepFrame = frame;
+        this.startAtFrame = 0;
+      }
       if (this.playing && frame >= this.nextStepFrame) {
         const step = this.step % 64;
         for (const channel of this.channels) {
