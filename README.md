@@ -59,3 +59,17 @@ Install dependencies with pnpm and run the workspace checks:
 pnpm install
 pnpm typecheck
 ```
+
+## Realtime collaboration
+
+Beat Room realtime editing uses a Cloudflare Durable Object per verified Telegram chat.
+
+- Each connected participant keeps a WebSocket to the chat's Beat Room.
+- Edits are operation messages, not locks on shared objects.
+- Multiple participants can patch the same entity concurrently.
+- There is no owner/editor/viewer distinction and no object-busy state.
+- Every verified room participant can submit create, patch, and delete operations for any supported entity.
+- The Durable Object assigns a monotonically increasing sequence number and broadcasts each accepted operation to every connected participant.
+- The client applies remote operations without disabling local controls, so another participant editing the same Piano Roll note, velocity, synth parameter, or mixer value does not block input.
+- WebSocket authentication uses a short-lived Worker-signed room ticket derived from verified Telegram WebApp data; raw Telegram initData is not sent to the room WebSocket.
+- The Durable Object is the realtime coordination layer. Persistent project snapshots and event history remain a separate concern for Supabase and are intentionally not conflated with live transport.
