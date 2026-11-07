@@ -37,7 +37,8 @@ export type CollaborationEnvelope =
   | { type: "sync.cursor"; actorId: number; cursor: { x: number; y: number }; area: string }
   | { type: "sync.ack"; opId: string; sequence: number }
   | { type: "sync.snapshot"; sequence: number; operations: CollaborationOperation[] }
-  | { type: "sync.error"; opId?: string; message: string };
+  | { type: "sync.error"; opId?: string; message: string }
+  | { type: "sync.clock"; serverTimeMs: number };
 
 export function isCollaborationOperation(value: unknown): value is CollaborationOperation {
   if (!value || typeof value !== "object") return false;
