@@ -17,7 +17,7 @@ export class AudioFxEngine {
   readonly context: AudioContext;
   private chains = new Map<string, EffectNode[]>();
 
-  constructor() { this.context = new AudioContext(); }
+  constructor(context?: AudioContext) { this.context = context ?? new AudioContext(); }
 
   async resume(): Promise<void> { if(this.context.state !== "running") await this.context.resume(); }
 
@@ -28,7 +28,8 @@ export class AudioFxEngine {
     dry.gain.value=1-wet; wetGain.gain.value=wet;
     input.connect(dry); dry.connect(output);
     let processor: AudioNode=input;
-    let eqFilters: BiquadFilterNode[] = [];\n    let reductionNode: DynamicsCompressorNode | undefined;
+    let eqFilters: BiquadFilterNode[] = [];
+    let reductionNode: DynamicsCompressorNode | undefined;
     wetGain.connect(output);
 
     const bypass=()=>{ dry.gain.value=effect.bypass?1:1-wet; wetGain.gain.value=effect.bypass?0:wet; };
