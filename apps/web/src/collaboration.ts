@@ -16,7 +16,7 @@ export function useBeatRoom() {
   const [state, setState] = useState<RoomConnectionState>("offline");
   const [events, setEvents] = useState<CollaborationEnvelope[]>([]);
   const [presence, setPresence] = useState<import("../../../packages/shared/src/collaboration").PresenceState[]>([]);
-  const identityRef = useRef<{ userId: number; chatId: number } | null>(null);
+  const identityRef = useRef<{ userId: number; chatId: number } | null>(null);\n  const ticketRef = useRef<string | null>(null);\n  const [roomTicket, setRoomTicket] = useState<string | null>(null);\n  const [chatId, setChatId] = useState<number | null>(null);
 
   useEffect(() => {
     const initData = window.Telegram?.WebApp?.initData;
@@ -41,7 +41,7 @@ export function useBeatRoom() {
         setState("connecting");
         const auth = await authenticate();
         if (closed) return;
-        identityRef.current = { userId: auth.user.id, chatId: auth.chat.id };
+        identityRef.current = { userId: auth.user.id, chatId: auth.chat.id };\n        ticketRef.current = auth.roomTicket;\n        setRoomTicket(auth.roomTicket);\n        setChatId(auth.chat.id);
 
         const protocol = location.protocol === "https:" ? "wss:" : "ws:";
         const socketUrl = protocol + "//" + location.host + "/api/room/socket"
@@ -120,7 +120,7 @@ export function useBeatRoom() {
     const socket = socketRef.current; if (!socket || socket.readyState !== WebSocket.OPEN) return;
     socket.send(JSON.stringify({ type: "cursor.move", cursor: { x, y }, area }));
   }
-  return { state, events, presence, publish, updatePresence, publishCursor, sequence: sequenceRef.current };
+  return { state, events, presence, publish, updatePresence, publishCursor, sequence: sequenceRef.current, roomTicket, chatId };
 }
 
 declare global {
