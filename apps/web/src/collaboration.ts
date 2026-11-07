@@ -146,6 +146,17 @@ export function useBeatRoom() {
     };
   }, [initData]);
 
+  useEffect(() => {
+    if (!roomTicket) return;
+    const heartbeat = window.setInterval(() => {
+      const socket = socketRef.current;
+      const identity = identityRef.current;
+      if (!socket || socket.readyState !== WebSocket.OPEN || !identity) return;
+      socket.send(JSON.stringify({ type: "presence.update", presence: { actorId: identity.userId, status: "online" } }));
+    }, 15000);
+    return () => window.clearInterval(heartbeat);
+  }, [roomTicket]);
+
   useEffect(() => () => { if (eventFlushTimerRef.current !== undefined) window.clearTimeout(eventFlushTimerRef.current); }, []);
 
   async function saveProjectState(state: unknown) {
