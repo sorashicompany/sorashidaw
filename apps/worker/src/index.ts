@@ -8,7 +8,8 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (request.method === "POST" && url.pathname === "/api/auth/telegram") return authenticateTelegram(request, env);
-    if (request.method === "GET" && url.pathname === "/api/room/socket") return connectRoomSocket(request, env);\n    if (url.pathname === "/api/room/assets" && (request.method === "GET" || request.method === "POST")) return roomAssets(request, env);\n    if (url.pathname.startsWith("/api/room/assets/") && request.method === "GET") return roomAsset(request, env);
+    if (request.method === "GET" && url.pathname === "/api/room/socket") return connectRoomSocket(request, env);
+    if (url.pathname === "/api/room/state" && (request.method === "GET" || request.method === "PUT")) return roomState(request, env);\n    if (url.pathname === "/api/room/assets" && (request.method === "GET" || request.method === "POST")) return roomAssets(request, env);\n    if (url.pathname.startsWith("/api/room/assets/") && request.method === "GET") return roomAsset(request, env);
     if (request.method === "GET" && url.pathname === "/health") return json({ ok: true, service: "sorashidaw-api" });
     return json({ error: "Not found" }, 404);
   },
@@ -53,6 +54,27 @@ async function connectRoomSocket(request: Request, env: Env): Promise<Response> 
 }
 function json(data: unknown, status = 200) { return new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json; charset=utf-8" } }); }
 
+
+
+async function roomState(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const chatId = Number(url.searchParams.get("chatId"));
+  const ticket = url.searchParams.get("ticket");
+  if (!Number.isSafeInteger(chatId) || !ticket) return json({ error: "chatId and ticket are required" }, 401);
+  try {
+    const verified = await verifyRoomTicket(ticket, chatId, env.TELEGRAM_BOT_TOKEN);
+    const stub = env.BEAT_ROOM.getByName(String(verified.chatId));
+    if (request.method === "GET") {
+      return json(await stub.getProjectState());
+    }
+    const body = await request.json() as { state?: unknown; version?: number };
+    if (!body.state || typeof body.state !== "object") return json({ error: "Project state is required" }, 400);
+    const result = await stub.saveProjectState(body.state, body.version);
+    return json(result);
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : "Project state request failed" }, 401);
+  }
+}
 
 async function roomAssets(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
