@@ -12,7 +12,9 @@ export default {
     if (request.method === "GET" && url.pathname === "/api/room/socket") return connectRoomSocket(request, env);
     if (url.pathname === "/api/room/state" && (request.method === "GET" || request.method === "PUT")) return roomState(request, env);
     if (url.pathname === "/api/room/history" && request.method === "GET") return roomHistory(request, env);
-    if (url.pathname.startsWith("/api/room/history/") && request.method === "POST") return restoreRoomVersion(request, env);\n    if (url.pathname === "/api/room/assets" && (request.method === "GET" || request.method === "POST")) return roomAssets(request, env);\n    if (url.pathname.startsWith("/api/room/assets/") && request.method === "GET") return roomAsset(request, env);
+    if (url.pathname.startsWith("/api/room/history/") && request.method === "POST") return restoreRoomVersion(request, env);
+    if (url.pathname === "/api/room/assets" && (request.method === "GET" || request.method === "POST")) return roomAssets(request, env);
+    if (url.pathname.startsWith("/api/room/assets/") && request.method === "GET") return roomAsset(request, env);
     if (request.method === "POST" && url.pathname === "/api/bot/webhook") return botWebhook(request, env);
     if (request.method === "POST" && url.pathname === "/api/bot/export") return botExport(request, env);
     if (request.method === "POST" && url.pathname === "/api/bot/saved") return botSaved(request, env);
