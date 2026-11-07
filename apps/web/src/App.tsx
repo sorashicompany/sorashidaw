@@ -159,6 +159,11 @@ export default function App() {
         if (op.targetId.startsWith("masterfx:")) {
           const effectId = op.targetId.slice(9);
           const key = String(op.payload.key);
+          if (key === "masterOrder" && Array.isArray(op.payload.value)) {
+            const order = op.payload.value.map(String);
+            setMasterEffects(current => [...current].sort((a,b) => order.indexOf(a.id) - order.indexOf(b.id)));
+            continue;
+          }
           setMasterEffects(current => current.map(effect => effect.id === effectId
             ? (key.startsWith("params.") ? { ...effect, params: { ...effect.params, [key.slice(7)]: op.payload.value } } : { ...effect, [key]: op.payload.value } as EffectInstance)
             : effect));
@@ -172,9 +177,11 @@ export default function App() {
         }));
       } else if (op.type === "ADD_EFFECT" && op.payload.effect) {
         const effect = op.payload.effect as EffectInstance;
-        setEffects(current => current.some(item => item.id === effect.id) ? current : [...current, effect]);
+        if (op.targetId.startsWith("masterfx:")) setMasterEffects(current => current.some(item => item.id === effect.id) ? current : [...current, effect]);
+        else setEffects(current => current.some(item => item.id === effect.id) ? current : [...current, effect]);
       } else if (op.type === "REMOVE_EFFECT") {
-        setEffects(current => current.filter(effect => effect.id !== op.targetId));
+        if (op.targetId.startsWith("masterfx:")) setMasterEffects(current => current.filter(effect => "masterfx:" + effect.id !== op.targetId));
+        else setEffects(current => current.filter(effect => effect.id !== op.targetId));
       }
     }
   }, [events]);
@@ -461,6 +468,7 @@ export default function App() {
       const copy = [...current];
       [copy[index], copy[next]] = [copy[next], copy[index]];
       publish("SET_EFFECT_PARAMETER", "masterfx:" + id, { key: "masterOrder", value: copy.map(effect => effect.id) }, "master");
+      void testMasterChain();
       return copy;
     });
   }
