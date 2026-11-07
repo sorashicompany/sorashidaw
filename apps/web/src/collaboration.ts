@@ -1,5 +1,117 @@
-import { useEffect, useRef, useState } from "react";\nimport type { CollaborationEnvelope, CollaborationOperation } from "../../../packages/shared/src/collaboration";\n\nexport type RoomConnectionState = "offline" | "connecting" | "live" | "error";\n\ntype AuthResponse = {\n  authenticated: true;\n  roomTicket: string;\n  user: { id: number; first_name: string; username?: string };\n  chat: { id: number };\n};\n\nexport function useBeatRoom() {\n  const socketRef = useRef<WebSocket | null>(null);\n  const [state, setState] = useState<RoomConnectionState>("offline");\n  const [events, setEvents] = useState<CollaborationEnvelope[]>([]);
-  const identityRef = useRef<{ userId: number; chatId: number } | null>(null);\n\n  useEffect(() => {\n    const initData = window.Telegram?.WebApp?.initData;\n    if (!initData) return;\n\n    let closed = false;\n    let socket: WebSocket | null = null;\n\n    async function connect() {\n      setState("connecting");\n      const response = await fetch("/api/auth/telegram", {\n        method: "POST",\n        headers: { "content-type": "application/json" },\n        body: JSON.stringify({ initData }),\n      });\n      if (!response.ok) throw new Error("Telegram authentication failed");\n      const auth = (await response.json()) as AuthResponse;
-      identityRef.current = { userId: auth.user.id, chatId: auth.chat.id };\n\n      const protocol = location.protocol === "https:" ? "wss:" : "ws:";\n      socket = new WebSocket(`${protocol}//${location.host}/api/room/socket?chatId=${encodeURIComponent(auth.chat.id)}&ticket=${encodeURIComponent(auth.roomTicket)}`);\n      socketRef.current = socket;\n      socket.onopen = () => !closed && setState("live");\n      socket.onmessage = event => {\n        try {\n          setEvents(prev => [...prev.slice(-199), JSON.parse(event.data) as CollaborationEnvelope]);\n        } catch {\n          // Ignore malformed server messages without breaking the room connection.\n        }\n      };\n      socket.onerror = () => !closed && setState("error");\n      socket.onclose = () => !closed && setState("offline");\n    }\n\n    connect().catch(() => !closed && setState("error"));\n    return () => { closed = true; socket?.close(); socketRef.current = null; };\n  }, []);\n\n  function publish(operation: Omit<CollaborationOperation, "opId" | "clientTime" | "roomId" | "actorId">) {\n    const socket = socketRef.current;\n    if (!socket || socket.readyState !== WebSocket.OPEN) return false;\n    const identity = identityRef.current;
-    if (!identity) return false;
-    const full = { ...operation, roomId: String(identity.chatId), actorId: identity.userId, opId: crypto.randomUUID(), clientTime: Date.now() } as CollaborationOperation;\n    socket.send(JSON.stringify(full));\n    return true;\n  }\n\n  return { state, events, publish };\n}\n\ndeclare global {\n  interface Window {\n    Telegram?: { WebApp?: { initData?: string } };\n  }\n}
+import { useEffect, useRef, useState } from "react";
+import type { CollaborationEnvelope, CollaborationOperation, CollaborationOperationType } from "../../../packages/shared/src/collaboration";
+
+export type RoomConnectionState = "offline" | "connecting" | "live" | "error";
+
+type AuthResponse = {
+  authenticated: true;
+  roomTicket: string;
+  user: { id: number; first_name: string; username?: string };
+  chat: { id: number };
+};
+
+export function useBeatRoom() {
+  const socketRef = useRef<WebSocket | null>(null);
+  const sequenceRef = useRef(0);
+  const [state, setState] = useState<RoomConnectionState>("offline");
+  const [events, setEvents] = useState<CollaborationEnvelope[]>([]);
+  const identityRef = useRef<{ userId: number; chatId: number } | null>(null);
+
+  useEffect(() => {
+    const initData = window.Telegram?.WebApp?.initData;
+    if (!initData) return;
+
+    let closed = false;
+    let socket: WebSocket | null = null;
+    let retryTimer: number | undefined;
+
+    async function authenticate() {
+      const response = await fetch("/api/auth/telegram", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ initData }),
+      });
+      if (!response.ok) throw new Error("Telegram authentication failed");
+      return (await response.json()) as AuthResponse;
+    }
+
+    async function connect() {
+      try {
+        setState("connecting");
+        const auth = await authenticate();
+        if (closed) return;
+        identityRef.current = { userId: auth.user.id, chatId: auth.chat.id };
+
+        const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+        const socketUrl = protocol + "//" + location.host + "/api/room/socket"
+          + "?chatId=" + encodeURIComponent(String(auth.chat.id))
+          + "&ticket=" + encodeURIComponent(auth.roomTicket)
+          + "&since=" + encodeURIComponent(String(sequenceRef.current));
+
+        socket = new WebSocket(socketUrl);
+        socketRef.current = socket;
+        socket.onopen = () => !closed && setState("live");
+        socket.onmessage = event => {
+          try {
+            const message = JSON.parse(event.data) as CollaborationEnvelope;
+            if ("sequence" in message && message.sequence > sequenceRef.current) {
+              sequenceRef.current = message.sequence;
+            }
+            setEvents(prev => [...prev.slice(-199), message]);
+          } catch {
+            // Ignore malformed server messages without breaking the room connection.
+          }
+        };
+        socket.onerror = () => !closed && setState("error");
+        socket.onclose = () => {
+          if (closed) return;
+          socketRef.current = null;
+          setState("offline");
+          retryTimer = window.setTimeout(() => void connect(), 500);
+        };
+      } catch {
+        if (closed) return;
+        setState("error");
+        retryTimer = window.setTimeout(() => void connect(), 1000);
+      }
+    }
+
+    void connect();
+    return () => {
+      closed = true;
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+      socket?.close();
+      socketRef.current = null;
+    };
+  }, [initData]);
+
+  function publish(
+    type: CollaborationOperationType,
+    targetId: string,
+    payload: Record<string, unknown>,
+    trackId?: string,
+  ) {
+    const socket = socketRef.current;
+    const identity = identityRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN || !identity) return false;
+
+    const operation: CollaborationOperation = {
+      type, targetId, payload, trackId,
+      roomId: String(identity.chatId),
+      actorId: identity.userId,
+      opId: crypto.randomUUID(),
+      clientTime: Date.now(),
+    };
+
+    socket.send(JSON.stringify(operation));
+    return true;
+  }
+
+  return { state, events, publish, sequence: sequenceRef.current };
+}
+
+declare global {
+  interface Window {
+    Telegram?: { WebApp?: { initData?: string } };
+  }
+}
