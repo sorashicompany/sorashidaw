@@ -29,6 +29,8 @@ export function useBeatRoom() {
   const identityRef = useRef<{ userId: number; chatId: number } | null>(null);\n  const ticketRef = useRef<string | null>(null);\n  const [roomTicket, setRoomTicket] = useState<string | null>(null);\n  const [chatId, setChatId] = useState<number | null>(null);
   const [serverOffsetMs, setServerOffsetMs] = useState(0);
   const [transport, setTransport] = useState<RoomTransportState | null>(null);
+  const [projectState, setProjectState] = useState<unknown | null>(null);
+  const [projectVersion, setProjectVersion] = useState(0);
 
   useEffect(() => {
     const initData = window.Telegram?.WebApp?.initData;
@@ -54,6 +56,16 @@ export function useBeatRoom() {
         const auth = await authenticate();
         if (closed) return;
         identityRef.current = { userId: auth.user.id, chatId: auth.chat.id };\n        ticketRef.current = auth.roomTicket;\n        setRoomTicket(auth.roomTicket);\n        setChatId(auth.chat.id);
+        try {
+          const stateResponse = await fetch("/api/room/state?chatId=" + encodeURIComponent(String(auth.chat.id)) + "&ticket=" + encodeURIComponent(auth.roomTicket));
+          if (stateResponse.ok) {
+            const saved = await stateResponse.json() as { state?: unknown; version?: number };
+            if (saved.state && typeof saved.state === "object") setProjectState(saved.state);
+            setProjectVersion(Number(saved.version ?? 0));
+          }
+        } catch {
+          // Realtime collaboration remains usable if persistent state is temporarily unavailable.
+        }
 
         const protocol = location.protocol === "https:" ? "wss:" : "ws:";
         const socketUrl = protocol + "//" + location.host + "/api/room/socket"
@@ -115,6 +127,22 @@ export function useBeatRoom() {
     };
   }, [initData]);
 
+  async function saveProjectState(state: unknown) {
+    const identity = identityRef.current;
+    const ticket = ticketRef.current;
+    if (!identity || !ticket) return false;
+    try {
+      const response = await fetch("/api/room/state?chatId=" + encodeURIComponent(String(identity.chatId)) + "&ticket=" + encodeURIComponent(ticket), {
+        method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ state, version: projectVersion }),
+      });
+      if (!response.ok) return false;
+      const result = await response.json() as { version?: number };
+      setProjectVersion(Number(result.version ?? projectVersion));
+      return true;
+    } catch { return false; }
+  }
+
   function publish(
     type: CollaborationOperationType,
     targetId: string,
@@ -150,7 +178,7 @@ export function useBeatRoom() {
     const socket = socketRef.current; if (!socket || socket.readyState !== WebSocket.OPEN) return;
     socket.send(JSON.stringify({ type: "cursor.move", cursor: { x, y }, area }));
   }
-  return { state, events, presence, publish, publishTransport, transport, serverOffsetMs, updatePresence, publishCursor, sequence: sequenceRef.current, roomTicket, chatId };
+  return { state, events, presence, publish, publishTransport, transport, serverOffsetMs, updatePresence, publishCursor, sequence: sequenceRef.current, roomTicket, chatId, projectState, projectVersion, saveProjectState };
 }
 
 declare global {
