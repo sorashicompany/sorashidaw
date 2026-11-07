@@ -2,13 +2,13 @@ import { verifyTelegramInitData } from "./telegram";
 import { BeatRoom } from "./room";
 import { createRoomTicket, verifyRoomTicket } from "./room-ticket";
 
-export interface Env { TELEGRAM_BOT_TOKEN: string; BEAT_ROOM: DurableObjectNamespace<BeatRoom>; }
+export interface Env { TELEGRAM_BOT_TOKEN: string; BEAT_ROOM: DurableObjectNamespace<BeatRoom>; DRUM_KITS: R2Bucket; }
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (request.method === "POST" && url.pathname === "/api/auth/telegram") return authenticateTelegram(request, env);
-    if (request.method === "GET" && url.pathname === "/api/room/socket") return connectRoomSocket(request, env);
+    if (request.method === "GET" && url.pathname === "/api/room/socket") return connectRoomSocket(request, env);\n    if (url.pathname === "/api/room/assets" && (request.method === "GET" || request.method === "POST")) return roomAssets(request, env);
     if (request.method === "GET" && url.pathname === "/health") return json({ ok: true, service: "sorashidaw-api" });
     return json({ error: "Not found" }, 404);
   },
@@ -52,3 +52,43 @@ async function connectRoomSocket(request: Request, env: Env): Promise<Response> 
   } catch (error) { return json({ error: error instanceof Error ? error.message : "Room authentication failed" }, 401); }
 }
 function json(data: unknown, status = 200) { return new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json; charset=utf-8" } }); }
+
+
+async function roomAssets(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const chatId = Number(url.searchParams.get("chatId"));
+  const ticket = url.searchParams.get("ticket");
+  if (!Number.isSafeInteger(chatId) || !ticket) return json({ error: "chatId and ticket are required" }, 401);
+  try {
+    const verified = await verifyRoomTicket(ticket, chatId, env.TELEGRAM_BOT_TOKEN);
+    const prefix = String(verified.chatId) + "/";
+    if (request.method === "GET") {
+      const listed = await env.DRUM_KITS.list({ prefix });
+      const assets = listed.objects.map(object => ({
+        id: object.key.slice(prefix.length),
+        name: object.customMetadata?.name ?? object.key.split("/").pop() ?? "Sample",
+        category: object.customMetadata?.category ?? "Other",
+        folder: object.customMetadata?.folder ?? "",
+        mimeType: object.httpMetadata?.contentType ?? "audio/wav",
+        size: object.size,
+        previewUrl: "/api/room/assets/" + encodeURIComponent(object.key.slice(prefix.length)) + "?chatId=" + encodeURIComponent(String(chatId)) + "&ticket=" + encodeURIComponent(ticket),
+      }));
+      return json({ assets });
+    }
+    const form = await request.formData();
+    const file = form.get("file");
+    if (!(file instanceof File)) return json({ error: "WAV file is required" }, 400);
+    const category = String(form.get("category") || "Other");
+    const folder = String(form.get("folder") || "");
+    const name = String(form.get("name") || file.name.replace(/\\.wav$/i, ""));
+    const id = crypto.randomUUID();
+    const key = prefix + id + ".wav";
+    await env.DRUM_KITS.put(key, file.stream(), {
+      httpMetadata: { contentType: file.type || "audio/wav", contentDisposition: "inline" },
+      customMetadata: { name, category, folder, mimeType: file.type || "audio/wav", uploadedBy: String(verified.userId) },
+    });
+    return json({ asset: { id, name, category, folder, mimeType: file.type || "audio/wav", size: file.size } }, 201);
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : "Drum kit request failed" }, 401);
+  }
+}
