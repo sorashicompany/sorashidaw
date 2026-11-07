@@ -1,0 +1,1 @@
+{"name":"sorashidaw-api","main":"src/index.ts","compatibility_date":"2026-11-06","vars":{"SUPABASE_URL":"https://hiviktkwzqlogivoyvit.supabase.co"},"secrets":{"required":["SUPABASE_SERVICE_ROLE_KEY","TELEGRAM_BOT_TOKEN"]}}
