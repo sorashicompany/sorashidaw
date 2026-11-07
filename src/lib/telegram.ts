@@ -1,0 +1,1 @@
+import {init,miniApp,viewport} from "@telegram-apps/sdk"; export function initTelegram(){try{init(); miniApp.mount(); viewport.mount(); return true}catch{return false}} export function telegramInitData(){return (window as any).Telegram?.WebApp?.initData||""}
