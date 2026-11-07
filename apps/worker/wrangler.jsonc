@@ -4,6 +4,9 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-11-07",
   "observability": { "enabled": true },
+  "r2_buckets": [
+    { "binding": "DRUM_KITS", "bucket_name": "sorashidaw-drum-kits" }
+  ],
   "durable_objects": {
     "bindings": [
       { "name": "BEAT_ROOM", "class_name": "BeatRoom" }
