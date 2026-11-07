@@ -1,5 +1,6 @@
 import { verifyTelegramInitData } from "./telegram";
 import { BeatRoom } from "./room";
+import { createRoomTicket, verifyRoomTicket } from "./room-ticket";
 
 export interface Env {
   TELEGRAM_BOT_TOKEN: string;
@@ -92,21 +93,20 @@ async function connectRoomSocket(request: Request, env: Env): Promise<Response> 
     return json({ error: "WebSocket upgrade required" }, 426);
   }
 
-  const initData = new URL(request.url).searchParams.get("initData");
-  if (!initData) return json({ error: "initData is required" }, 401);
+  const url = new URL(request.url);
+  const chatId = Number(url.searchParams.get("chatId"));
+  const ticket = url.searchParams.get("ticket");
+
+  if (!Number.isSafeInteger(chatId) || !ticket) {
+    return json({ error: "chatId and ticket are required" }, 401);
+  }
 
   try {
-    const data = await verifyTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN);
-
-    if (!data.user || !data.chat) {
-      return json({ error: "Verified Telegram user/chat is required" }, 401);
-    }
-
-    const roomId = String(data.chat.id);
-    const stub = env.BEAT_ROOM.getByName(roomId);
+    const verified = await verifyRoomTicket(ticket, chatId, env.TELEGRAM_BOT_TOKEN);
+    const stub = env.BEAT_ROOM.getByName(String(verified.chatId));
     const headers = new Headers(request.headers);
-    headers.set("X-Beat-Room-Id", roomId);
-    headers.set("X-Telegram-User-Id", String(data.user.id));
+    headers.set("X-Beat-Room-Id", String(verified.chatId));
+    headers.set("X-Telegram-User-Id", String(verified.userId));
 
     return stub.fetch(new Request(request, { headers }));
   } catch (error) {
@@ -115,12 +115,3 @@ async function connectRoomSocket(request: Request, env: Env): Promise<Response> 
   }
 }
 
-function json(data: unknown, status = 200): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      "cache-control": "no-store",
-    },
-  });
-}
