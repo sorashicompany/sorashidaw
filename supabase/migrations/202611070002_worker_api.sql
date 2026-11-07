@@ -39,7 +39,7 @@ begin
   end if;
 
   v_message := p_action || ':' || p_chat_id::text || ':' || p_user_id::text || ':' || coalesce(p_payload::text, '{}');
-  v_expected := encode(public.hmac(v_message::bytea, v_secret::bytea, 'sha256'), 'hex');
+  v_expected := encode(extensions.hmac(v_message::bytea, v_secret::bytea, 'sha256'), 'hex');
 
   if p_signature is null or not public.secure_compare(v_expected, p_signature) then
     raise exception 'Invalid worker signature';
