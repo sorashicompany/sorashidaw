@@ -9,14 +9,12 @@
     "SUPABASE_PUBLISHABLE_KEY": "sb_publishable__K1KlOjR7faj8se6hhcjQw_gOLXv_jM",
     "MINI_APP_URL": "https://nexoradaw-web.pages.dev"
   },
-  "r2_buckets": [
-    { "binding": "DRUM_KITS", "bucket_name": "sorashidaw-drum-kits" }
-  ],
   "durable_objects": {
     "bindings": [
       { "name": "BEAT_ROOM", "class_name": "BeatRoom" }
     ]
   },
+  "secrets": { "required": ["TELEGRAM_BOT_TOKEN", "TELEGRAM_WEBHOOK_SECRET", "SUPABASE_WORKER_SIGNING_SECRET"] },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["BeatRoom"] }
   ]
