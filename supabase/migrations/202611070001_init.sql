@@ -1,6 +1,6 @@
--- Sorashi DAW persistence foundation.
--- Telegram identity is verified by the Cloudflare Worker before application access.
--- Room identity is derived from the verified Telegram chat.
+-- Persistent room identity:
+-- one Telegram chat ID maps to exactly one Beat Room.
+-- Re-opening the Mini App from the same chat resolves the same row.
 
 create extension if not exists pgcrypto;
 
@@ -37,11 +37,14 @@ create table if not exists public.beat_projects (
   updated_at timestamptz not null default now()
 );
 
+create index if not exists beat_room_members_user_idx
+  on public.beat_room_members (telegram_user_id);
+
 alter table public.telegram_users enable row level security;
 alter table public.beat_rooms enable row level security;
 alter table public.beat_room_members enable row level security;
 alter table public.beat_projects enable row level security;
 
--- Browser access is not granted by these tables directly.
--- The authenticated API/Realtime design will be added after the collaboration
--- protocol is finalized. Service-role credentials must never reach the Mini App.
+-- The unique Telegram chat ID is the durable isolation boundary.
+-- Creation/resolution will be performed atomically by the trusted API layer.
+-- No browser session can choose another chat's room ID.
