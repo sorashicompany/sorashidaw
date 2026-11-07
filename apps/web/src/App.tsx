@@ -1240,7 +1240,7 @@ export default function App() {
               </div>)}
               {projectHistory.length === 0 && <div className="history-empty">No saved versions yet.</div>}
             </div>
-          </div>
+          </div>}
 
       <div className="toolbar">
         <div className="tool-tabs">{windows.map(windowName => <button key={windowName} className={active === windowName ? "tool-tab active" : "tool-tab"} onClick={() => setActive(windowName)}>{icon(windowName)} {windowName}</button>)}</div>
