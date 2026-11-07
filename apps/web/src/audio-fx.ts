@@ -161,9 +161,27 @@ export class AudioFxEngine {
     for (const sample of data) peak = Math.max(peak, Math.abs(sample));
     return peak > 0 ? 20 * Math.log10(peak) : -Infinity;
   }\n\n  getGainReduction(id:string, effectId?: string): number { return this.chains.get(id)?.find(node => node.reduction && (!effectId || node.effectId === effectId))?.reduction?.reduction ?? 0; }\n\n  createChain(id:string,effects:EffectInstance[]): AudioNode {
-    const nodes=effects.map(e=>{ const node=this.createEffect(e); node.effectId=e.id; return node; });\n    const analyzer=this.context.createAnalyser(); analyzer.fftSize=2048; analyzer.smoothingTimeConstant=.82;\n    if(nodes.length) nodes.at(-1)!.output.connect(analyzer);\n    if(nodes.length) { const last=nodes.at(-1) as EffectNode; last.analyzer=analyzer; const compressor=last.output; void compressor; }\n    this.chains.set(id,nodes);
+    const nodes=effects.map(e=>{ const node=this.createEffect(e); node.effectId=e.id; return node; });\n    const analyzer=this.context.createAnalyser(); analyzer.fftSize=2048; analyzer.smoothingTimeConstant=.82;\n    if(nodes.length) nodes.at(-1)!.output.connect(analyzer);\n    if(nodes.length) { const last=nodes.at(-1) as EffectNode; last.analyzer=analyzer; const compressor=last.output; void compressor; }\n    if (!nodes.length) {
+      const input = this.context.createGain();
+      const output = this.context.createGain();
+      const analyzerNode = this.context.createAnalyser();
+      analyzerNode.fftSize = 2048;
+      analyzerNode.smoothingTimeConstant = .82;
+      input.connect(output);
+      output.connect(analyzerNode);
+      const passthrough: EffectNode = {
+        effectId: "__passthrough",
+        input,
+        output,
+        analyzer: analyzerNode,
+        dispose: () => { try { input.disconnect(); output.disconnect(); } catch {} },
+        setParameter: () => {}
+      };
+      nodes.push(passthrough);
+    }
+    this.chains.set(id,nodes);
     for(let i=0;i<nodes.length-1;i++) nodes[i].output.connect(nodes[i+1].input);
-    return nodes.length?nodes[0].input:this.context.createGain();
+    return nodes[0].input;
   }
 
   attachSource(id:string,source:AudioNode,effects:EffectInstance[],destination:AudioNode=this.context.destination): void {
