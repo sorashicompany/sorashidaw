@@ -1,3 +1,61 @@
-# Sorashi DAW\n\nBrowser DAW foundation for Telegram Mini Apps. React/Vite frontend, Web Audio engine, Supabase persistence, Yjs-ready collaboration layer, and Cloudflare Worker API.\n\n## Local\n\nnpm install\nnpm run dev\n\nCopy .env.example to .env and add Supabase publishable credentials. Never commit service-role or Telegram bot secrets.\n\n## Supabase\n\nProject: hiviktkwzqlogivoyvit (eu-central-1). Apply supabase/migrations/202611070001_init.sql.\n\n## Cloudflare\n\nWorker configuration is in worker/wrangler.jsonc. Required secrets: SUPABASE_SERVICE_ROLE_KEY and TELEGRAM_BOT_TOKEN. Set them with Wrangler secret commands or Cloudflare dashboard.\n\nThe frontend should be deployed as static assets; the Worker is the secure Telegram validation/API layer.
+# Sorashi DAW
 
-Production: Supabase `hiviktkwzqlogivoyvit` in eu-central-1; Cloudflare Pages `sorashidaw.pages.dev`; Worker `sorashidaw-api`. The Worker contains Telegram initData validation. Add its secrets before enabling Telegram authentication in production.
+A multiplayer DAW delivered as a Telegram Mini App.
+
+The product model is:
+
+`1 Telegram Chat → 1 Beat Room → all participants equal → everyone can edit everything`
+
+## Current foundation
+
+- Telegram Mini App entry point.
+- Server-side verification of Telegram WebApp `initData`.
+- No email/password registration.
+- Client-supplied Telegram IDs are never trusted as authentication proof.
+- Cloudflare Worker as the secure API/authentication boundary.
+- Supabase as the persistent application database.
+- Client-side Web Audio for audio rendering.
+- Shared domain contracts for future real-time collaboration.
+
+The repository is being implemented incrementally as product requirements arrive. Product decisions that have not been specified yet are intentionally left open.
+
+## Layout
+
+```
+apps/
+  web/        Telegram Mini App
+  worker/     Cloudflare Worker API
+packages/
+  shared/     Shared domain contracts
+supabase/
+  migrations/ Database migrations
+docs/
+  architecture/
+```
+
+## Secrets
+
+Never commit:
+
+- Telegram Bot token.
+- Supabase service-role key.
+- Any other production secret.
+
+Telegram authentication uses the signed `Telegram.WebApp.initData` value. `initDataUnsafe` is not an authentication source.
+
+## Cloudflare
+
+The Worker is the server-side boundary for Telegram validation and future room/session APIs. Runtime configuration and deployment configuration will be added as the Cloudflare architecture is finalized.
+
+## Supabase
+
+Use a dedicated Sorashi DAW Supabase project. Do not point this application at an unrelated existing project.
+
+## Development
+
+Install dependencies with pnpm and run the workspace checks:
+
+```bash
+pnpm install
+pnpm typecheck
+```
