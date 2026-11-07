@@ -23,7 +23,7 @@ async function authenticateTelegram(request: Request, env: Env): Promise<Respons
     const data = await verifyTelegramInitData(body.initData, env.TELEGRAM_BOT_TOKEN);
     if (!data.user) return json({ error: "Telegram user is missing" }, 401);
     if (!data.chat) return json({ error: "Telegram chat context is missing" }, 401);
-    const roomTicket = await createRoomTicket(data.user.id, data.chat.id, env.TELEGRAM_BOT_TOKEN);
+    const roomTicket = await createRoomTicket(data.user.id, data.chat.id, env.TELEGRAM_BOT_TOKEN, { firstName: data.user.first_name, username: data.user.username, avatarUrl: data.user.photo_url });
     return json({
       authenticated: true, roomTicket,
       user: { id: data.user.id, first_name: data.user.first_name, last_name: data.user.last_name, username: data.user.username, photo_url: data.user.photo_url },
@@ -43,8 +43,9 @@ async function connectRoomSocket(request: Request, env: Env): Promise<Response> 
     const headers = new Headers(request.headers);
     headers.set("X-Beat-Room-Id", String(verified.chatId));
     headers.set("X-Telegram-User-Id", String(verified.userId));
-    headers.set("X-Telegram-Username", request.headers.get("X-Telegram-Username") ?? "");
-    headers.set("X-Telegram-First-Name", request.headers.get("X-Telegram-First-Name") ?? "");
+    headers.set("X-Telegram-Username", verified.profile.username ?? "");
+    headers.set("X-Telegram-First-Name", verified.profile.firstName);
+    headers.set("X-Telegram-Avatar-Url", verified.profile.avatarUrl ?? "");
     const target = new URL(request.url);
     const since = url.searchParams.get("since"); if (since) target.searchParams.set("since", since);
     return stub.fetch(new Request(target, { headers }));
