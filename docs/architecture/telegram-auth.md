@@ -25,4 +25,15 @@ The verified Telegram chat ID is the room identity input:
 
 The database enforces one `beat_room` per Telegram chat with a unique constraint on `telegram_chat_id`.
 
-Room permissions are intentionally not split into Owner/Editor/Viewer roles. Every authenticated participant of the chat has the same editing model.
+Room permissions are intentionally not split into Owner/Editor/Viewer/Admin roles.
+There are no per-track or per-tool permissions.
+A participant is either a member of the shared Beat Room or is not a member.
+Every authenticated room participant has the same full-edit capability.
+
+This means any participant can create, modify, move, automate, replace, or delete
+tracks, MIDI, playlist items, samples, synth settings, effects, mixer settings,
+master-chain settings, BPM, and arrangement data.
+
+The collaboration protocol must therefore never derive write authorization from
+the identity of the creator of an element. Actor identity is retained for
+attribution, presence, and conflict handling, not for permission levels.
