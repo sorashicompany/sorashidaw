@@ -4,7 +4,7 @@ import { createRoomTicket, verifyRoomTicket } from "./room-ticket";
 import { sendBeatSaved, sendExportedFile, sendInvite, sendOpenBeatStudio, getGroupInviteLink } from "./telegram-bot";
 import { supabaseWorkerCall } from "./supabase";
 
-export interface Env { TELEGRAM_BOT_TOKEN: string; BEAT_ROOM: DurableObjectNamespace<BeatRoom>; DRUM_KITS: R2Bucket; MINI_APP_URL: string; SUPABASE_URL: string; SUPABASE_PUBLISHABLE_KEY: string; SUPABASE_WORKER_SIGNING_SECRET: string; BOT_WEBHOOK_SECRET?: string; BOT_USERNAME?: string; }
+export interface Env { TELEGRAM_BOT_TOKEN: string; BEAT_ROOM: DurableObjectNamespace<BeatRoom>; DRUM_KITS: R2Bucket; MINI_APP_URL: string; SUPABASE_URL: string; SUPABASE_PUBLISHABLE_KEY: string; SUPABASE_WORKER_SIGNING_SECRET: string; TELEGRAM_WEBHOOK_SECRET?: string; BOT_WEBHOOK_SECRET?: string; BOT_USERNAME?: string; }
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -19,7 +19,7 @@ export default {
     if (request.method === "POST" && url.pathname === "/api/bot/webhook") return botWebhook(request, env);
     if (request.method === "POST" && url.pathname === "/api/bot/export") return botExport(request, env);
     if (request.method === "POST" && url.pathname === "/api/bot/saved") return botSaved(request, env);
-    if (request.method === "GET" && url.pathname === "/health") return json({ ok: true, service: "sorashidaw-api" });
+    if (request.method === "GET" && url.pathname === "/health") return json({ ok: true, service: "nexoradaw-api" });
     return json({ error: "Not found" }, 404);
   },
 };
@@ -187,7 +187,7 @@ async function roomAsset(request: Request, env: Env): Promise<Response> {
 
 
 async function botWebhook(request: Request, env: Env): Promise<Response> {
-  if (env.BOT_WEBHOOK_SECRET && request.headers.get("X-Telegram-Bot-Api-Secret-Token") !== env.BOT_WEBHOOK_SECRET) {
+  const webhookSecret = env.TELEGRAM_WEBHOOK_SECRET ?? env.BOT_WEBHOOK_SECRET;\n  if (webhookSecret && request.headers.get("X-Telegram-Bot-Api-Secret-Token") !== webhookSecret) {
     return json({ error: "Invalid webhook secret" }, 401);
   }
   let update: any;
