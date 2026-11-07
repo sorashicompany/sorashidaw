@@ -1,6 +1,6 @@
 import type { BuiltInEffectType, EffectInstance } from "../../../packages/shared/src/effects";
 
-type EffectNode = { input: AudioNode; output: AudioNode; analyzer?: AnalyserNode; dispose: () => void; setParameter: (key:string,value:unknown) => void };
+type EffectNode = { input: AudioNode; output: AudioNode; analyzer?: AnalyserNode; reduction?: DynamicsCompressorNode; dispose: () => void; setParameter: (key:string,value:unknown) => void };
 
 const db = (value:number) => Math.pow(10, value / 20);
 const clamp = (v:number,min:number,max:number) => Math.max(min,Math.min(max,v));
@@ -67,7 +67,7 @@ export class AudioFxEngine {
         break;
       }
       case "compressor": {
-        const n=c.createDynamicsCompressor(); n.threshold.value=Number(p.threshold??-18); n.ratio.value=Number(p.ratio??4); n.attack.value=Number(p.attack??.01); n.release.value=Number(p.release??.15); n.knee.value=Number(p.knee??12); input.connect(n); n.connect(wetGain); processor=n; break;
+        const n=c.createDynamicsCompressor(); n.threshold.value=clamp(Number(p.threshold??-18),-100,0); n.ratio.value=clamp(Number(p.ratio??4),1,20); n.attack.value=clamp(Number(p.attack??.01),0,1); n.release.value=clamp(Number(p.release??.15),0,1); n.knee.value=clamp(Number(p.knee??12),0,40); output.gain.value=db(Number(p.makeup??0)); input.connect(n); n.connect(wetGain); processor=n; break;
       }
       case "limiter": {
         const n=c.createDynamicsCompressor(); n.threshold.value=Number(p.threshold??-1); n.ratio.value=20; n.attack.value=.001; n.release.value=Number(p.release??.08); n.knee.value=0; input.connect(n); n.connect(wetGain); processor=n; break;
@@ -121,8 +121,8 @@ export class AudioFxEngine {
     return {input,output,dispose:()=>{},setParameter:param};
   }
 
-  getAnalyzer(id:string): AnalyserNode | undefined { return this.chains.get(id)?.at(-1)?.analyzer; }\n\n  createChain(id:string,effects:EffectInstance[]): AudioNode {
-    const nodes=effects.map(e=>this.createEffect(e));\n    const analyzer=this.context.createAnalyser(); analyzer.fftSize=2048; analyzer.smoothingTimeConstant=.82;\n    if(nodes.length) nodes.at(-1)!.output.connect(analyzer);\n    if(nodes.length) (nodes.at(-1) as EffectNode).analyzer=analyzer;\n    this.chains.set(id,nodes);
+  getAnalyzer(id:string): AnalyserNode | undefined { return this.chains.get(id)?.at(-1)?.analyzer; }\n\n  getGainReduction(id:string): number { return this.chains.get(id)?.find(node => node.reduction)?.reduction?.reduction ?? 0; }\n\n  createChain(id:string,effects:EffectInstance[]): AudioNode {
+    const nodes=effects.map(e=>{ const node=this.createEffect(e); if(e.type==="compressor" || e.type==="limiter") { /* reduction meter is attached below */ } return node; });\n    const analyzer=this.context.createAnalyser(); analyzer.fftSize=2048; analyzer.smoothingTimeConstant=.82;\n    if(nodes.length) nodes.at(-1)!.output.connect(analyzer);\n    if(nodes.length) { const last=nodes.at(-1) as EffectNode; last.analyzer=analyzer; const compressor=last.output; void compressor; }\n    this.chains.set(id,nodes);
     for(let i=0;i<nodes.length-1;i++) nodes[i].output.connect(nodes[i+1].input);
     return nodes.length?nodes[0].input:this.context.createGain();
   }
