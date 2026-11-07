@@ -42,7 +42,12 @@ export class RealAudioEngine {
     }
     this.masterEffects = structuredClone(effects);
     this.masterFx = new AudioFxEngine(this.context);
-    this.masterFx.attachSource("master-channel", this.node, this.masterEffects, this.context.destination);
+    this.masterGain?.disconnect();
+    this.masterPan?.disconnect();
+    this.masterGain = this.context.createGain();
+    this.masterPan = this.context.createStereoPanner();
+    this.masterGain.connect(this.masterPan).connect(this.context.destination);
+    this.masterFx.attachSource("master-channel", this.node, this.masterEffects, this.masterGain);
   }
 
   setMasterParameter(effectId: string, key: string, value: unknown): void {
