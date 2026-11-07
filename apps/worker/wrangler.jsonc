@@ -4,6 +4,10 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-11-07",
   "observability": { "enabled": true },
+  "vars": {
+    "SUPABASE_URL": "https://xdosscxenccrsshjjrpg.supabase.co",
+    "SUPABASE_PUBLISHABLE_KEY": "sb_publishable__K1KlOjR7faj8se6hhcjQw_gOLXv_jM"
+  },
   "r2_buckets": [
     { "binding": "DRUM_KITS", "bucket_name": "sorashidaw-drum-kits" }
   ],
