@@ -136,12 +136,57 @@ export default function App() {
   const [effects, setEffects] = useState<EffectInstance[]>(INITIAL_EFFECTS);
   const [masterEffects, setMasterEffects] = useState<EffectInstance[]>([]);
   const [masterMeter, setMasterMeter] = useState(-Infinity);
+  const projectHydratedRef = useRef(false);
+  const saveTimerRef = useRef<number | undefined>(undefined);
+
+  const buildProjectSnapshot = () => ({
+    schemaVersion: 1, bpm, tracks, markers, automation,
+    pianoNotes: pianoNotes.map(({ selected, ...note }) => note),
+    drumChannels, patternLength, activePattern, patternNames, synth, effects, masterEffects, mixer,
+    loop: { enabled: loopEnabled, startBeats: loopStartBeats, endBeats: loopEndBeats },
+    assets: drumAssets.map(({ previewUrl, ...asset }) => asset),
+  });
+
+  const scheduleProjectSave = () => {
+    if (!projectHydratedRef.current || !chatId) return;
+    if (saveTimerRef.current !== undefined) window.clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = window.setTimeout(() => void saveProjectState(buildProjectSnapshot()), 900);
+  };
   const [drumAssets, setDrumAssets] = useState<DrumAsset[]>([]);
   const [assetCategory, setAssetCategory] = useState("Kicks");
   const [browserCategory, setBrowserCategory] = useState("Samples");
   const [browserSearch, setBrowserSearch] = useState("");
   const [browserFolder, setBrowserFolder] = useState("All");
   const [activeAutomationLane, setActiveAutomationLane] = useState("auto-filter");
+  useEffect(() => {
+    if (projectHydratedRef.current || !savedProjectState || typeof savedProjectState !== "object") return;
+    const saved = savedProjectState as any;
+    if (typeof saved.bpm === "number") setBpm(saved.bpm);
+    if (Array.isArray(saved.tracks)) setTracks(saved.tracks);
+    if (Array.isArray(saved.markers)) setMarkers(saved.markers);
+    if (Array.isArray(saved.automation)) setAutomation(saved.automation);
+    if (Array.isArray(saved.pianoNotes)) setPianoNotes(saved.pianoNotes);
+    if (Array.isArray(saved.drumChannels)) setDrumChannels(saved.drumChannels);
+    if (typeof saved.patternLength === "number") setPatternLength(saved.patternLength);
+    if (typeof saved.activePattern === "string") setActivePattern(saved.activePattern);
+    if (Array.isArray(saved.patternNames)) setPatternNames(saved.patternNames);
+    if (saved.synth && typeof saved.synth === "object") setSynth(saved.synth);
+    if (Array.isArray(saved.effects)) setEffects(saved.effects);
+    if (Array.isArray(saved.masterEffects)) setMasterEffects(saved.masterEffects);
+    if (Array.isArray(saved.mixer)) setMixer(saved.mixer);
+    if (saved.loop) {
+      setLoopEnabled(Boolean(saved.loop.enabled));
+      setLoopStartBeats(Number(saved.loop.startBeats ?? 0));
+      setLoopEndBeats(Number(saved.loop.endBeats ?? 64));
+    }
+    projectHydratedRef.current = true;
+  }, [savedProjectState]);
+
+  useEffect(() => {
+    scheduleProjectSave();
+    return () => { if (saveTimerRef.current !== undefined) window.clearTimeout(saveTimerRef.current); };
+  }, [bpm, tracks, markers, automation, pianoNotes, drumChannels, patternLength, activePattern, patternNames, synth, effects, masterEffects, mixer, loopEnabled, loopStartBeats, loopEndBeats, drumAssets, chatId]);
+
   const [gainReduction, setGainReduction] = useState<Record<string, number>>({});
   const audioFxRef = useRef<AudioFxEngine | null>(null);
   const eqCanvasRef = useRef<HTMLCanvasElement | null>(null);
